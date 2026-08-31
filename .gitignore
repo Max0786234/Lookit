@@ -1,0 +1,25 @@
+# Local environment secrets
+.env
+.env.local
+.env.*
+!.env.example
+
+# Local tooling / generated artifacts
+tools/
+test-output.txt
+out/
+target/
+
+# Node / frontend output
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Java build output
+*.class
+
+# Logs
+*.log
+
+# Editor settings
+.vscode/

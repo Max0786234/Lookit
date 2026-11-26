@@ -26,6 +26,7 @@ public final class SearchEngine {
     private final MutableIndex index;
     private final Searcher searcher;
     private final SnippetGenerator snippets;
+    private final QueryParser parser;
     private final QueryCache<TopDocs> cache = new QueryCache<>(512);
 
     public SearchEngine(MutableIndex index, Searcher searcher) {
@@ -33,6 +34,7 @@ public final class SearchEngine {
         this.searcher = searcher;
         Analyzer analyzer = index.analyzer();
         this.snippets = new SnippetGenerator(analyzer::normalize, SNIPPET_WORDS);
+        this.parser = new QueryParser(analyzer, java.util.Set.copyOf(index.fields()));
     }
 
     /** BM25F k1 tuned on SciFact train (docs/evaluation.md). */
@@ -67,11 +69,7 @@ public final class SearchEngine {
     }
 
     public Query parse(String text) {
-        String trimmed = text.trim();
-        if (trimmed.length() >= 2 && trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
-            return QueryBuilders.phrase(index.analyzer(), null, trimmed.substring(1, trimmed.length() - 1));
-        }
-        return QueryBuilders.bagOfWords(index.analyzer(), trimmed);
+        return parser.parse(text);
     }
 
     /** Ranked ids only (no snippets) — what evaluation needs. */

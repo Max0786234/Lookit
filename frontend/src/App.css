@@ -287,3 +287,24 @@
   font-weight: 700;
   color: #0369a1;
 }
+
+.result-summary {
+  color: #64748b;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+.result-card mark {
+  background: #fde68a;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}

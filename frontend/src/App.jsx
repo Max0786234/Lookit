@@ -1,10 +1,29 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 
+const API = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api'
+const PAGE_SIZE = 10
+
+/** Renders snippet text with [start, end) highlight ranges as <mark>, without innerHTML. */
+function Highlighted({ text, ranges }) {
+  const parts = []
+  let cursor = 0
+  for (const [start, end] of ranges ?? []) {
+    if (start > cursor) parts.push(text.slice(cursor, start))
+    parts.push(<mark key={start}>{text.slice(start, end)}</mark>)
+    cursor = end
+  }
+  parts.push(text.slice(cursor))
+  return <p>{parts}</p>
+}
+
 function App() {
   const [mode, setMode] = useState('search') // 'search' or 'crawl'
   const [query, setQuery] = useState('java search')
   const [results, setResults] = useState([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [tookMs, setTookMs] = useState(null)
   const [loading, setLoading] = useState(false)
   const [crawlUrl, setCrawlUrl] = useState('https://example.com')
   const [crawlMaxPages, setCrawlMaxPages] = useState(5)
@@ -14,7 +33,7 @@ function App() {
 
   const refreshStats = async () => {
     try {
-      const response = await fetch('http://localhost:8080/api/stats')
+      const response = await fetch(`${API}/stats`)
       const data = await response.json()
       setStats(data)
     } catch (error) {
@@ -34,26 +53,36 @@ function App() {
     }
   }, [mode])
 
-  const handleSearch = async (event) => {
-    event.preventDefault()
+  const runSearch = async (targetPage) => {
     setLoading(true)
 
     try {
-      const response = await fetch(`http://localhost:8080/api/search?q=${encodeURIComponent(query)}`)
+      const params = new URLSearchParams({ q: query, page: targetPage, size: PAGE_SIZE })
+      const response = await fetch(`${API}/search?${params}`)
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }
 
       const data = await response.json()
       setResults(data.results ?? [])
+      setPage(data.page)
+      setTotal(data.total)
+      setTookMs(data.tookMs)
     } catch (error) {
       console.error('Search failed', error)
       setResults([])
-      window.alert('Search failed. Make sure the backend is running on http://localhost:8080')
+      window.alert(`Search failed. Make sure the backend is running on ${API}`)
     } finally {
       setLoading(false)
     }
   }
+
+  const handleSearch = (event) => {
+    event.preventDefault()
+    runSearch(1)
+  }
+
+  const pageCount = Math.ceil(total / PAGE_SIZE)
 
   const handleCrawl = async (event) => {
     event.preventDefault()
@@ -61,7 +90,7 @@ function App() {
     setCrawlStatus('Crawling in progress...')
 
     try {
-      const response = await fetch('http://localhost:8080/api/crawl', {
+      const response = await fetch(`${API}/crawl`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -81,7 +110,7 @@ function App() {
 
       // Fetch updated stats
       try {
-        const statsResponse = await fetch('http://localhost:8080/api/stats')
+        const statsResponse = await fetch(`${API}/stats`)
         const statsData = await statsResponse.json()
         setStats(statsData)
       } catch (statsError) {
@@ -133,22 +162,38 @@ function App() {
           </form>
 
           <section className="results-panel">
+            {tookMs !== null && (
+              <p className="result-summary">
+                {total} result{total === 1 ? '' : 's'} · {tookMs} ms
+              </p>
+            )}
             {results.length === 0 ? (
               <p className="empty-state">No results yet. Try a search.</p>
             ) : (
               results.map((result, index) => (
-                <article key={`${result.url}-${index}`} className="result-card">
+                <article key={result.id} className="result-card">
                   <div className="result-meta">
-                    <span>#{index + 1}</span>
+                    <span>#{(page - 1) * PAGE_SIZE + index + 1}</span>
                     <span>score {result.score.toFixed(2)}</span>
                   </div>
                   <h2>{result.title}</h2>
                   <a href={result.url} target="_blank" rel="noreferrer">
                     {result.url}
                   </a>
-                  <p>{result.snippet}</p>
+                  <Highlighted text={result.snippet} ranges={result.highlights} />
                 </article>
               ))
+            )}
+            {pageCount > 1 && (
+              <nav className="pager">
+                <button type="button" disabled={page <= 1 || loading} onClick={() => runSearch(page - 1)}>
+                  Previous
+                </button>
+                <span>Page {page} of {pageCount}</span>
+                <button type="button" disabled={page >= pageCount || loading} onClick={() => runSearch(page + 1)}>
+                  Next
+                </button>
+              </nav>
             )}
           </section>
         </>

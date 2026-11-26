@@ -27,7 +27,7 @@ public final class Bm25Similarity implements Similarity {
 
     @Override
     public SimScorer scorer(IndexReader reader, String field, List<String> terms, double boost) {
-        int n = reader.numDocs();
+        int n = reader.maxDoc();
         double idf = 0;
         for (String t : terms) {
             idf += idf(n, reader.docFreq(field, t));

@@ -18,7 +18,30 @@ public interface IndexReader {
     /** Live (non-deleted) documents. */
     int numDocs();
 
+    /**
+     * Documents counted by collection statistics (df, total lengths). Segments keep counting
+     * deleted documents until a merge drops them — like Lucene — so this can exceed numDocs.
+     */
+    default int maxDoc() {
+        return numDocs();
+    }
+
     Optional<Document> document(int docId);
+
+    /** Cheap liveness check (no stored-field decoding). */
+    default boolean contains(int docId) {
+        return document(docId).isPresent();
+    }
+
+    /** Upper bound on the term's frequency in any document's {@code field} (for WAND bounds). */
+    default int maxTermFreq(String field, String term) {
+        return Integer.MAX_VALUE;
+    }
+
+    /** Lower bound on {@code field} length among documents containing the term (for WAND bounds). */
+    default int minFieldLength(String field, String term) {
+        return 0;
+    }
 
     /** Ascending ids of all live documents. */
     int[] docIds();
@@ -33,7 +56,7 @@ public interface IndexReader {
     long totalFieldLength(String field);
 
     default double avgFieldLength(String field) {
-        int n = numDocs();
+        int n = maxDoc();
         return n == 0 ? 0.0 : (double) totalFieldLength(field) / n;
     }
 

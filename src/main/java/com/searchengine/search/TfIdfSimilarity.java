@@ -12,7 +12,7 @@ public final class TfIdfSimilarity implements Similarity {
 
     @Override
     public SimScorer scorer(IndexReader reader, String field, List<String> terms, double boost) {
-        int n = reader.numDocs();
+        int n = reader.maxDoc();
         double idf = 0;
         for (String t : terms) {
             int df = reader.docFreq(field, t);

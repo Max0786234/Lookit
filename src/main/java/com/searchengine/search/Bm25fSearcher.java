@@ -58,7 +58,7 @@ public final class Bm25fSearcher extends Searcher {
         if (sources.isEmpty()) {
             return Scorers.EMPTY;
         }
-        return new Bm25fScorer(sources, Bm25Similarity.idf(reader.numDocs(), maxDf));
+        return new Bm25fScorer(sources, Bm25Similarity.idf(reader.maxDoc(), maxDf));
     }
 
     @Override
@@ -82,7 +82,7 @@ public final class Bm25fSearcher extends Searcher {
             for (String f : params.keySet()) {
                 maxDf = Math.max(maxDf, reader.docFreq(f, t));
             }
-            idf += Bm25Similarity.idf(reader.numDocs(), maxDf);
+            idf += Bm25Similarity.idf(reader.maxDoc(), maxDf);
         }
         return new Bm25fScorer(sources, idf);
     }

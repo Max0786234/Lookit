@@ -79,8 +79,9 @@ public final class MemoryIndex implements MutableIndex {
                 fd.lengths.put(document.id(), lengths.get(field));
                 fd.totalLength += lengths.get(field);
                 fd.docTerms.put(document.id(), positions.keySet().toArray(String[]::new));
+                int length = lengths.get(field);
                 positions.forEach((term, pos) -> fd.terms.computeIfAbsent(term, k -> new TermPostings())
-                        .put(document.id(), pos));
+                        .put(document.id(), pos, length));
             }
             generation++;
         } finally {
@@ -153,6 +154,38 @@ public final class MemoryIndex implements MutableIndex {
         lock.readLock().lock();
         try {
             return documents.keySet().stream().mapToInt(Integer::intValue).toArray();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public boolean contains(int docId) {
+        lock.readLock().lock();
+        try {
+            return documents.containsKey(docId);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public int maxTermFreq(String field, String term) {
+        lock.readLock().lock();
+        try {
+            TermPostings tp = field(field).terms.get(term);
+            return tp == null ? 0 : tp.maxFreq;
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    @Override
+    public int minFieldLength(String field, String term) {
+        lock.readLock().lock();
+        try {
+            TermPostings tp = field(field).terms.get(term);
+            return tp == null ? 0 : tp.minLength;
         } finally {
             lock.readLock().unlock();
         }
@@ -268,8 +301,13 @@ public final class MemoryIndex implements MutableIndex {
         int[][] positions = new int[2][];
         int size;
         long totalFreq;
+        // bounds only ever widen (deletes do not shrink them), so they stay valid upper/lower bounds
+        int maxFreq;
+        int minLength = Integer.MAX_VALUE;
 
-        void put(int doc, int[] pos) {
+        void put(int doc, int[] pos, int fieldLength) {
+            maxFreq = Math.max(maxFreq, pos.length);
+            minLength = Math.min(minLength, fieldLength);
             if (size == docs.length) {
                 docs = Arrays.copyOf(docs, size * 2);
                 positions = Arrays.copyOf(positions, size * 2);

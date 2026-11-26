@@ -60,6 +60,11 @@ public final class ByteIO {
             writeByte((int) v);
         }
 
+        public void writeBytes(byte[] bytes) throws IOException {
+            out.write(bytes);
+            position += bytes.length;
+        }
+
         public void writeString(String s) throws IOException {
             byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
             writeVInt(bytes.length);

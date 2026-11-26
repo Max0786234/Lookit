@@ -81,4 +81,38 @@ class SearchControllerTest {
                 .andExpect(jsonPath("$.title").value("New Java Article"))
                 .andExpect(jsonPath("$.url").value("local://new-java-article"));
     }
+
+    @Test
+    void missingDocumentReturns404Problem() throws Exception {
+        when(searchEngineService.getDocument(42)).thenReturn(Optional.empty());
+
+        mockMvc.perform(get("/api/documents/42"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Document not found: 42"));
+    }
+
+    @Test
+    void blankQueryReturns400() throws Exception {
+        mockMvc.perform(get("/api/search").param("q", "   "))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/search"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void invalidDocumentBodyReturns400() throws Exception {
+        mockMvc.perform(post("/api/documents")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"\",\"url\":\"local://x\",\"content\":\"text\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void outOfRangeCrawlRequestReturns400() throws Exception {
+        mockMvc.perform(post("/api/crawl")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"seedUrl\":\"https://example.com\",\"maxPages\":5000,\"maxDepth\":1}"))
+                .andExpect(status().isBadRequest());
+    }
 }

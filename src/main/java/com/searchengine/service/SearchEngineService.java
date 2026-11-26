@@ -3,108 +3,69 @@ package com.searchengine.service;
 import com.searchengine.document.Document;
 import com.searchengine.document.DocumentEntity;
 import com.searchengine.document.DocumentRepository;
-import com.searchengine.index.InvertedIndex;
+import com.searchengine.index.Fields;
 import com.searchengine.loader.DocumentLoaderService;
-import com.searchengine.processor.TextProcessor;
-import com.searchengine.query.QueryCache;
-import com.searchengine.query.SearchResult;
-import com.searchengine.query.SearchService;
-import com.searchengine.ranking.Bm25Ranker;
-import com.searchengine.search.SnippetGenerator;
+import com.searchengine.search.SearchEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 /**
- * Spring facade over the engine: the database is the source of truth for documents, the
- * in-memory index is rebuilt from it at startup and kept in sync on every write.
+ * Spring facade over {@link SearchEngine}: the database is the source of truth for documents,
+ * the engine index is rebuilt from it at startup and kept in sync on every write.
  */
 @Service
 public class SearchEngineService {
     private static final Logger log = LoggerFactory.getLogger(SearchEngineService.class);
     static final String SAMPLE_DIRECTORY = "data/documents";
-    static final int SNIPPET_WORDS = 30;
 
-    private final InvertedIndex index;
-    private final SearchService searchService;
+    private final SearchEngine engine = SearchEngine.inMemory();
     private final DocumentRepository documentRepository;
-    private final QueryCache<List<SearchResult>> queryCache = new QueryCache<>(512);
-    private final TextProcessor textProcessor;
-    private final SnippetGenerator snippets;
 
     public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService) {
         this.documentRepository = documentRepository;
-        this.textProcessor = new TextProcessor();
-        this.snippets = new SnippetGenerator(
-                word -> textProcessor.tokenize(word).stream().findFirst().orElse(null), SNIPPET_WORDS);
-        this.index = new InvertedIndex(textProcessor);
-        this.searchService = new SearchService(index, textProcessor, new Bm25Ranker());
-
         if (documentRepository.count() == 0) {
             int loaded = documentLoaderService.loadDocumentsFromDirectory(SAMPLE_DIRECTORY);
             log.info("Empty corpus: loaded {} sample documents from {}", loaded, SAMPLE_DIRECTORY);
         }
         int indexed = reindexAllDocuments();
-        log.info("Index ready: {} documents, {} terms", indexed, index.vocabularySize());
+        log.info("Index ready: {} documents, {} body terms", indexed, vocabularySize());
     }
 
-    public List<SearchResult> search(String query) {
-        String key = query.trim().toLowerCase(Locale.ROOT);
-        return queryCache.get(index.generation(), key, () -> List.copyOf(searchService.search(query)));
-    }
-
-    /** One page of results with snippets computed only for the hits on that page. */
-    public SearchPage search(String query, int page, int size) {
-        long started = System.nanoTime();
-        List<SearchResult> all = search(query);
-        Set<String> terms = new HashSet<>(textProcessor.tokenize(query.replace("\"", " ")));
-        int from = Math.min((page - 1) * size, all.size());
-        int to = Math.min(from + size, all.size());
-        List<Hit> hits = all.subList(from, to).stream()
-                .map(r -> new Hit(r.document(), r.score(), snippets.generate(r.document().content(), terms)))
-                .toList();
-        long tookMs = (System.nanoTime() - started) / 1_000_000;
-        return new SearchPage(all.size(), hits, tookMs);
-    }
-
-    public record Hit(Document document, double score, SnippetGenerator.Snippet snippet) {
-    }
-
-    public record SearchPage(int total, List<Hit> hits, long tookMs) {
+    public SearchEngine.Results search(String query, int page, int size) {
+        return engine.search(query, page, size);
     }
 
     public Optional<Document> getDocument(int id) {
-        return index.getDocument(id);
+        return engine.index().document(id);
     }
 
     public List<Document> getAllDocuments() {
-        return index.getAllDocuments();
+        int[] ids = engine.index().docIds();
+        return java.util.Arrays.stream(ids).mapToObj(this::getDocument).flatMap(Optional::stream).toList();
     }
 
     public int documentCount() {
-        return index.documentCount();
+        return engine.index().numDocs();
     }
 
     public int vocabularySize() {
-        return index.vocabularySize();
+        return engine.index().vocabularySize(Fields.BODY);
     }
 
     public long totalTermOccurrences() {
-        return index.totalLength();
+        return Fields.ALL.stream().mapToLong(f -> engine.index().totalFieldLength(f)).sum();
     }
 
     public Document addDocument(String title, String url, String content) {
         DocumentEntity saved = documentRepository.save(new DocumentEntity(title, url, content));
         Objects.requireNonNull(saved.getId(), "database did not assign an id");
         Document document = toDocument(saved);
-        index.addDocument(document);
+        engine.add(document);
         return document;
     }
 
@@ -113,7 +74,7 @@ public class SearchEngineService {
             return false;
         }
         documentRepository.deleteById(id);
-        return index.removeDocument(id);
+        return engine.delete(id);
     }
 
     /**
@@ -124,15 +85,15 @@ public class SearchEngineService {
     public int reindexAllDocuments() {
         int added = 0;
         for (DocumentEntity entity : documentRepository.findAll()) {
-            if (entity.getId() != null && index.getDocument(entity.getId()).isEmpty()) {
-                index.addDocument(toDocument(entity));
+            if (entity.getId() != null && engine.index().document(entity.getId()).isEmpty()) {
+                engine.add(toDocument(entity));
                 added++;
             }
         }
         if (added > 0) {
             log.debug("Reindex added {} documents", added);
         }
-        return index.documentCount();
+        return engine.index().numDocs();
     }
 
     private static Document toDocument(DocumentEntity entity) {

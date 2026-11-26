@@ -3,6 +3,7 @@ package com.searchengine.api;
 import com.searchengine.crawler.CrawlerService;
 import com.searchengine.crawler.WebFetcherService;
 import com.searchengine.document.Document;
+import com.searchengine.search.SearchEngine;
 import com.searchengine.search.SnippetGenerator;
 import com.searchengine.service.SearchEngineService;
 import org.junit.jupiter.api.Test;
@@ -41,8 +42,8 @@ class SearchControllerTest {
 
     @Test
     void searchEndpointReturnsResults() throws Exception {
-        when(searchEngineService.search("java search", 1, 10)).thenReturn(new SearchEngineService.SearchPage(1, List.of(
-                new SearchEngineService.Hit(new Document(1, "Java Search Engine", "local://java-search-engine",
+        when(searchEngineService.search("java search", 1, 10)).thenReturn(new SearchEngine.Results(1, List.of(
+                new SearchEngine.Hit(new Document(1, "Java Search Engine", "local://java-search-engine",
                         "Java is a powerful language."), 0.95,
                         new SnippetGenerator.Snippet("Java is a powerful language.",
                                 List.of(new SnippetGenerator.Highlight(0, 4))))), 3));

@@ -1,4 +1,4 @@
-package com.searchengine.query;
+package com.searchengine.search;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

@@ -10,6 +10,7 @@ import com.searchengine.api.dto.SearchResultDto;
 import com.searchengine.api.dto.StatsDto;
 import com.searchengine.crawler.WebFetcherService;
 import com.searchengine.document.Document;
+import com.searchengine.search.SearchEngine;
 import com.searchengine.service.SearchEngineService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -45,9 +46,9 @@ public class SearchController {
 
     @GetMapping("/search")
     public SearchResponseDto search(@RequestParam @NotBlank @Size(max = 512) String q,
-                                    @RequestParam(defaultValue = "1") @Min(1) @Max(1000) int page,
+                                    @RequestParam(defaultValue = "1") @Min(1) @Max(100) int page,
                                     @RequestParam(defaultValue = "10") @Min(1) @Max(50) int size) {
-        SearchEngineService.SearchPage result = searchEngineService.search(q, page, size);
+        SearchEngine.Results result = searchEngineService.search(q, page, size);
         List<SearchResultDto> items = result.hits().stream()
                 .map(hit -> new SearchResultDto(
                         hit.document().id(),

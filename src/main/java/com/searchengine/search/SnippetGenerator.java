@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,6 +32,11 @@ public final class SnippetGenerator {
     }
 
     public Snippet generate(String text, Set<String> queryTerms) {
+        return generate(text, queryTerms::contains);
+    }
+
+    /** @param matches whether an index term counts as a query hit (exact terms, or prefix expansion) */
+    public Snippet generate(String text, Predicate<String> matches) {
         if (text == null || text.isEmpty()) {
             return new Snippet("", List.of());
         }
@@ -39,7 +45,8 @@ public final class SnippetGenerator {
         Matcher m = WORD.matcher(text);
         while (m.find()) {
             words.add(new int[]{m.start(), m.end()});
-            terms.add(queryTerms.isEmpty() ? null : normalizer.apply(m.group()));
+            String term = normalizer.apply(m.group());
+            terms.add(term != null && matches.test(term) ? term : null);
         }
         if (words.isEmpty()) {
             return new Snippet(truncate(text), List.of());
@@ -55,7 +62,7 @@ public final class SnippetGenerator {
             int total = 0;
             for (int i = start; i < start + window; i++) {
                 String t = terms.get(i);
-                if (t != null && queryTerms.contains(t)) {
+                if (t != null) {
                     distinct.add(t);
                     total++;
                 }
@@ -79,7 +86,7 @@ public final class SnippetGenerator {
         Matcher bm = WORD.matcher(body);
         while (bm.find()) {
             String t = normalizer.apply(bm.group());
-            if (t != null && queryTerms.contains(t)) {
+            if (t != null && matches.test(t)) {
                 highlights.add(new Highlight(prefix.length() + bm.start(), prefix.length() + bm.end()));
             }
         }

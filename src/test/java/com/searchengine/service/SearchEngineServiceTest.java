@@ -2,6 +2,7 @@ package com.searchengine.service;
 
 import com.searchengine.document.Document;
 import com.searchengine.loader.DocumentLoaderService;
+import com.searchengine.search.SearchEngine;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -20,22 +21,22 @@ class SearchEngineServiceTest {
     @Test
     void searchSeesDocumentsAddedAfterAPreviousIdenticalQuery() {
         String query = "zygomorphic";
-        assertTrue(service.search(query).isEmpty());
+        assertTrue(service.search(query, 1, 10).hits().isEmpty());
 
         Document added = service.addDocument("Flowers", "local://flowers", "zygomorphic flowers are bilateral");
 
-        assertEquals(1, service.search(query).size(), "cached empty result must not be served after an add");
-        assertEquals(added.id(), service.search(query).get(0).document().id());
+        assertEquals(1, service.search(query, 1, 10).hits().size(), "cached empty result must not be served after an add");
+        assertEquals(added.id(), service.search(query, 1, 10).hits().get(0).document().id());
     }
 
     @Test
     void deletedDocumentsDisappearFromResults() {
         Document added = service.addDocument("Tmp", "local://tmp", "quokka marsupial");
-        assertEquals(1, service.search("quokka").size());
+        assertEquals(1, service.search("quokka", 1, 10).hits().size());
 
         assertTrue(service.deleteDocument(added.id()));
 
-        assertTrue(service.search("quokka").isEmpty());
+        assertTrue(service.search("quokka", 1, 10).hits().isEmpty());
     }
 
     @Test
@@ -43,9 +44,9 @@ class SearchEngineServiceTest {
         for (int i = 0; i < 15; i++) {
             service.addDocument("Wombat " + i, "local://w" + i, "the wombat number " + i + " digs burrows");
         }
-        SearchEngineService.SearchPage first = service.search("wombat", 1, 10);
-        SearchEngineService.SearchPage second = service.search("wombat", 2, 10);
-        SearchEngineService.SearchPage beyond = service.search("wombat", 5, 10);
+        SearchEngine.Results first = service.search("wombat", 1, 10);
+        SearchEngine.Results second = service.search("wombat", 2, 10);
+        SearchEngine.Results beyond = service.search("wombat", 5, 10);
 
         assertEquals(15, first.total());
         assertEquals(10, first.hits().size());

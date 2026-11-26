@@ -2,6 +2,8 @@ package com.searchengine.loader;
 
 import com.searchengine.document.DocumentEntity;
 import com.searchengine.document.DocumentRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -13,6 +15,7 @@ import java.util.stream.Stream;
 
 @Service
 public class DocumentLoaderService {
+    private static final Logger log = LoggerFactory.getLogger(DocumentLoaderService.class);
 
     private final DocumentRepository documentRepository;
 
@@ -42,17 +45,17 @@ public class DocumentLoaderService {
                 try {
                     String title = removeExtension(file.getFileName().toString());
                     String content = Files.readString(file);
-                    String url = "local://file/" + title.toLowerCase().replace(" ", "-");
+                    String url = "local://file/" + title.toLowerCase(java.util.Locale.ROOT).replace(" ", "-");
 
                     DocumentEntity entity = new DocumentEntity(title, url, content);
                     documentRepository.save(entity);
                     loaded++;
                 } catch (IOException e) {
-                    System.err.println("Failed to load document: " + file + " - " + e.getMessage());
+                    log.warn("Failed to load document {}: {}", file, e.getMessage());
                 }
             }
         } catch (IOException e) {
-            System.err.println("Failed to read documents directory: " + e.getMessage());
+            log.warn("Failed to read documents directory {}: {}", dir, e.getMessage());
         }
 
         return loaded;

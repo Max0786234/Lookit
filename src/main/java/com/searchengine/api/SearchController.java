@@ -96,9 +96,7 @@ public class SearchController {
         int maxDepth = Math.max(0, Math.min(request.maxDepth(), 3)); // Cap at depth 3
 
         // Crawl and store documents in database
-        WebFetcherService.CrawlStats stats = webFetcherService.crawl(seedUrl, maxDepth, maxPages, title -> {
-            System.out.println("Crawled: " + title);
-        });
+        WebFetcherService.CrawlStats stats = webFetcherService.crawl(seedUrl, maxDepth, maxPages);
         
         // Reload search index with newly added documents from database
         searchEngineService.reindexAllDocuments();

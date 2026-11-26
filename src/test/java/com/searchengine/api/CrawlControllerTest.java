@@ -10,7 +10,6 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
@@ -35,7 +34,7 @@ class CrawlControllerTest {
 
     @Test
     void crawlEndpointReturnsSeedAndVisitedPages() throws Exception {
-        when(webFetcherService.crawl(anyString(), anyInt(), anyInt(), any())).thenReturn(
+        when(webFetcherService.crawl(anyString(), anyInt(), anyInt())).thenReturn(
                 new WebFetcherService.CrawlStats("https://example.com", 1, 1, 1, "example.com")
         );
 

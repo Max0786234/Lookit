@@ -4,6 +4,8 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -14,6 +16,7 @@ import java.util.Set;
 
 @Service
 public class CrawlerService {
+    private static final Logger log = LoggerFactory.getLogger(CrawlerService.class);
     
     public CrawledPage crawlPage(String url, String html) {
         try {
@@ -33,7 +36,7 @@ public class CrawlerService {
             
             return new CrawledPage(title, text, links);
         } catch (Exception e) {
-            System.err.println("Error parsing HTML from " + url + ": " + e.getMessage());
+            log.warn("Error parsing HTML from {}: {}", url, e.getMessage());
             return new CrawledPage("", "", new ArrayList<>());
         }
     }

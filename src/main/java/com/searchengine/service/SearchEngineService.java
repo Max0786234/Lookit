@@ -6,80 +6,49 @@ import com.searchengine.document.DocumentRepository;
 import com.searchengine.index.InvertedIndex;
 import com.searchengine.loader.DocumentLoaderService;
 import com.searchengine.processor.TextProcessor;
+import com.searchengine.query.QueryCache;
 import com.searchengine.query.SearchResult;
 import com.searchengine.query.SearchService;
 import com.searchengine.ranking.Bm25Ranker;
-import com.searchengine.query.QueryCache;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 
+/**
+ * Spring facade over the engine: the database is the source of truth for documents, the
+ * in-memory index is rebuilt from it at startup and kept in sync on every write.
+ */
 @Service
 public class SearchEngineService {
-    private final SearchService searchService;
+    private static final Logger log = LoggerFactory.getLogger(SearchEngineService.class);
+    static final String SAMPLE_DIRECTORY = "data/documents";
+
     private final InvertedIndex index;
+    private final SearchService searchService;
     private final DocumentRepository documentRepository;
-    private final DocumentLoaderService documentLoaderService;
     private final QueryCache<List<SearchResult>> queryCache = new QueryCache<>(512);
 
     public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService) {
         this.documentRepository = documentRepository;
-        this.documentLoaderService = documentLoaderService;
         TextProcessor textProcessor = new TextProcessor();
         this.index = new InvertedIndex(textProcessor);
-
-        seedSampleDocuments();
         this.searchService = new SearchService(index, textProcessor, new Bm25Ranker());
-    }
 
-    private void seedSampleDocuments() {
-        List<DocumentEntity> savedDocuments = documentRepository.findAll();
-        if (!savedDocuments.isEmpty()) {
-            savedDocuments.forEach(entity -> {
-                Integer id = entity.getId();
-                if (id == null) {
-                    id = index.documentCount() + 1;
-                    entity.setId(id);
-                }
-                index.addDocument(new Document(
-                        id,
-                        entity.getTitle(),
-                        entity.getUrl(),
-                        entity.getContent()
-                ));
-            });
-            return;
+        if (documentRepository.count() == 0) {
+            int loaded = documentLoaderService.loadDocumentsFromDirectory(SAMPLE_DIRECTORY);
+            log.info("Empty corpus: loaded {} sample documents from {}", loaded, SAMPLE_DIRECTORY);
         }
-
-        // Try loading from data/documents directory
-        int loaded = documentLoaderService.loadDocumentsFromDirectory("data/documents");
-        if (loaded > 0) {
-            System.out.println("Loaded " + loaded + " documents from data/documents/");
-            // Reload from database after loading
-            List<DocumentEntity> newDocuments = documentRepository.findAll();
-            newDocuments.forEach(entity -> index.addDocument(new Document(
-                    entity.getId(),
-                    entity.getTitle(),
-                    entity.getUrl(),
-                    entity.getContent()
-            )));
-            return;
-        }
-
-        // Fallback to hardcoded samples if no files found
-        System.out.println("No documents found. Seeding with default samples.");
-        addDocument("Java Search Engine", "local://java-search-engine",
-                "Java is a powerful language. This project builds a search engine using Java.");
-        addDocument("Spring Boot Backend", "local://spring-boot-backend",
-                "Spring Boot helps Java developers build backend APIs quickly.");
-        addDocument("Information Retrieval Basics", "local://information-retrieval",
-                "Search engines use an inverted index and ranking algorithms to retrieve documents.");
+        int indexed = reindexAllDocuments();
+        log.info("Index ready: {} documents, {} terms", indexed, index.vocabularySize());
     }
-
 
     public List<SearchResult> search(String query) {
-        String key = query.trim().toLowerCase(java.util.Locale.ROOT);
+        String key = query.trim().toLowerCase(Locale.ROOT);
         return queryCache.get(index.generation(), key, () -> List.copyOf(searchService.search(query)));
     }
 
@@ -99,54 +68,46 @@ public class SearchEngineService {
         return index.vocabularySize();
     }
 
-    public int totalTermOccurrences() {
-        return index.getAllDocuments().stream()
-                .mapToInt(document -> index.documentLength(document.id()))
-                .sum();
+    public long totalTermOccurrences() {
+        return index.totalLength();
     }
 
     public Document addDocument(String title, String url, String content) {
-        DocumentEntity entity = new DocumentEntity(title, url, content);
-        DocumentEntity saved = documentRepository.save(entity);
-        if (saved == null) {
-            saved = entity;
-        }
-
-        if (saved.getId() == null) {
-            saved.setId(index.documentCount() + 1);
-        }
-
-        Document document = new Document(saved.getId(), title, url, content);
+        DocumentEntity saved = documentRepository.save(new DocumentEntity(title, url, content));
+        Objects.requireNonNull(saved.getId(), "database did not assign an id");
+        Document document = toDocument(saved);
         index.addDocument(document);
         return document;
     }
 
-    /**
-     * Rebuild the in-memory index from all documents in the database.
-     * Call this after adding documents via crawler or batch operations.
-     */
-    public void reindexAllDocuments() {
-        // Load all documents from database and add to the existing index
-        // This is idempotent - re-adding the same documents just updates their entries
-        List<DocumentEntity> allDocs = documentRepository.findAll();
-        int beforeCount = index.documentCount();
+    public boolean deleteDocument(int id) {
+        if (!documentRepository.existsById(id)) {
+            return false;
+        }
+        documentRepository.deleteById(id);
+        return index.removeDocument(id);
+    }
 
-        for (DocumentEntity entity : allDocs) {
-            Integer id = entity.getId();
-            if (id == null) {
-                id = index.documentCount() + 1;
-                entity.setId(id);
-            }
-            if (index.getDocument(id).isEmpty()) {
-                // Only add if not already in index
-                Document document = new Document(id, entity.getTitle(), entity.getUrl(), entity.getContent());
-                index.addDocument(document);
+    /**
+     * Adds every stored document that is not yet in the index (e.g. after a crawl wrote to the DB).
+     *
+     * @return number of documents in the index afterwards
+     */
+    public int reindexAllDocuments() {
+        int added = 0;
+        for (DocumentEntity entity : documentRepository.findAll()) {
+            if (entity.getId() != null && index.getDocument(entity.getId()).isEmpty()) {
+                index.addDocument(toDocument(entity));
+                added++;
             }
         }
-        
-        int afterCount = index.documentCount();
-        if (afterCount > beforeCount) {
-            System.out.println("Reindexed: added " + (afterCount - beforeCount) + " new documents, total now: " + afterCount);
+        if (added > 0) {
+            log.debug("Reindex added {} documents", added);
         }
+        return index.documentCount();
+    }
+
+    private static Document toDocument(DocumentEntity entity) {
+        return new Document(entity.getId(), entity.getTitle(), entity.getUrl(), entity.getContent());
     }
 }

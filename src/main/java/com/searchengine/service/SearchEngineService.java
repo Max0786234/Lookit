@@ -10,14 +10,17 @@ import com.searchengine.query.QueryCache;
 import com.searchengine.query.SearchResult;
 import com.searchengine.query.SearchService;
 import com.searchengine.ranking.Bm25Ranker;
+import com.searchengine.search.SnippetGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Spring facade over the engine: the database is the source of truth for documents, the
@@ -27,15 +30,20 @@ import java.util.Optional;
 public class SearchEngineService {
     private static final Logger log = LoggerFactory.getLogger(SearchEngineService.class);
     static final String SAMPLE_DIRECTORY = "data/documents";
+    static final int SNIPPET_WORDS = 30;
 
     private final InvertedIndex index;
     private final SearchService searchService;
     private final DocumentRepository documentRepository;
     private final QueryCache<List<SearchResult>> queryCache = new QueryCache<>(512);
+    private final TextProcessor textProcessor;
+    private final SnippetGenerator snippets;
 
     public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService) {
         this.documentRepository = documentRepository;
-        TextProcessor textProcessor = new TextProcessor();
+        this.textProcessor = new TextProcessor();
+        this.snippets = new SnippetGenerator(
+                word -> textProcessor.tokenize(word).stream().findFirst().orElse(null), SNIPPET_WORDS);
         this.index = new InvertedIndex(textProcessor);
         this.searchService = new SearchService(index, textProcessor, new Bm25Ranker());
 
@@ -50,6 +58,26 @@ public class SearchEngineService {
     public List<SearchResult> search(String query) {
         String key = query.trim().toLowerCase(Locale.ROOT);
         return queryCache.get(index.generation(), key, () -> List.copyOf(searchService.search(query)));
+    }
+
+    /** One page of results with snippets computed only for the hits on that page. */
+    public SearchPage search(String query, int page, int size) {
+        long started = System.nanoTime();
+        List<SearchResult> all = search(query);
+        Set<String> terms = new HashSet<>(textProcessor.tokenize(query.replace("\"", " ")));
+        int from = Math.min((page - 1) * size, all.size());
+        int to = Math.min(from + size, all.size());
+        List<Hit> hits = all.subList(from, to).stream()
+                .map(r -> new Hit(r.document(), r.score(), snippets.generate(r.document().content(), terms)))
+                .toList();
+        long tookMs = (System.nanoTime() - started) / 1_000_000;
+        return new SearchPage(all.size(), hits, tookMs);
+    }
+
+    public record Hit(Document document, double score, SnippetGenerator.Snippet snippet) {
+    }
+
+    public record SearchPage(int total, List<Hit> hits, long tookMs) {
     }
 
     public Optional<Document> getDocument(int id) {

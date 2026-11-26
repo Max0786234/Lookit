@@ -39,6 +39,23 @@ class SearchEngineServiceTest {
     }
 
     @Test
+    void pagesSliceResultsAndCarrySnippets() {
+        for (int i = 0; i < 15; i++) {
+            service.addDocument("Wombat " + i, "local://w" + i, "the wombat number " + i + " digs burrows");
+        }
+        SearchEngineService.SearchPage first = service.search("wombat", 1, 10);
+        SearchEngineService.SearchPage second = service.search("wombat", 2, 10);
+        SearchEngineService.SearchPage beyond = service.search("wombat", 5, 10);
+
+        assertEquals(15, first.total());
+        assertEquals(10, first.hits().size());
+        assertEquals(5, second.hits().size());
+        assertTrue(beyond.hits().isEmpty());
+        assertTrue(first.hits().get(0).snippet().text().contains("wombat"));
+        assertEquals(1, first.hits().get(0).snippet().highlights().size());
+    }
+
+    @Test
     void idsAreAssignedByTheDatabaseAndUnique() {
         Document a = service.addDocument("A", "local://a", "alpha");
         Document b = service.addDocument("B", "local://b", "beta");

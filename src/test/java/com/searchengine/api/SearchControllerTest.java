@@ -3,7 +3,7 @@ package com.searchengine.api;
 import com.searchengine.crawler.CrawlerService;
 import com.searchengine.crawler.WebFetcherService;
 import com.searchengine.document.Document;
-import com.searchengine.query.SearchResult;
+import com.searchengine.search.SnippetGenerator;
 import com.searchengine.service.SearchEngineService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,16 +41,19 @@ class SearchControllerTest {
 
     @Test
     void searchEndpointReturnsResults() throws Exception {
-        when(searchEngineService.search("java search")).thenReturn(List.of(
-                new SearchResult(new Document(1, "Java Search Engine", "local://java-search-engine",
-                        "Java is a powerful language. This project builds a search engine using Java."), 0.95)
-        ));
+        when(searchEngineService.search("java search", 1, 10)).thenReturn(new SearchEngineService.SearchPage(1, List.of(
+                new SearchEngineService.Hit(new Document(1, "Java Search Engine", "local://java-search-engine",
+                        "Java is a powerful language."), 0.95,
+                        new SnippetGenerator.Snippet("Java is a powerful language.",
+                                List.of(new SnippetGenerator.Highlight(0, 4))))), 3));
 
         mockMvc.perform(get("/api/search")
                         .param("q", "java search")
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.query").value("java search"))
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.results[0].highlights[0][1]").value(4))
                 .andExpect(jsonPath("$.results[0].title").value("Java Search Engine"));
     }
 

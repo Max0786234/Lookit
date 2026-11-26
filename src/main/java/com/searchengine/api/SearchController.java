@@ -10,9 +10,10 @@ import com.searchengine.api.dto.SearchResultDto;
 import com.searchengine.api.dto.StatsDto;
 import com.searchengine.crawler.WebFetcherService;
 import com.searchengine.document.Document;
-import com.searchengine.query.SearchResult;
 import com.searchengine.service.SearchEngineService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
@@ -43,16 +44,20 @@ public class SearchController {
     }
 
     @GetMapping("/search")
-    public SearchResponseDto search(@RequestParam @NotBlank @Size(max = 512) String q) {
-        List<SearchResult> results = searchEngineService.search(q);
-        List<SearchResultDto> items = results.stream()
-                .map(result -> new SearchResultDto(
-                        result.document().title(),
-                        result.document().url(),
-                        result.document().content(),
-                        result.score()))
+    public SearchResponseDto search(@RequestParam @NotBlank @Size(max = 512) String q,
+                                    @RequestParam(defaultValue = "1") @Min(1) @Max(1000) int page,
+                                    @RequestParam(defaultValue = "10") @Min(1) @Max(50) int size) {
+        SearchEngineService.SearchPage result = searchEngineService.search(q, page, size);
+        List<SearchResultDto> items = result.hits().stream()
+                .map(hit -> new SearchResultDto(
+                        hit.document().id(),
+                        hit.document().title(),
+                        hit.document().url(),
+                        hit.snippet().text(),
+                        hit.snippet().highlights().stream().map(h -> new int[]{h.start(), h.end()}).toList(),
+                        hit.score()))
                 .toList();
-        return new SearchResponseDto(q, items);
+        return new SearchResponseDto(q, result.total(), page, size, result.tookMs(), items);
     }
 
     @GetMapping("/documents")

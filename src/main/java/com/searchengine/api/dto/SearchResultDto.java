@@ -1,4 +1,7 @@
 package com.searchengine.api.dto;
 
-public record SearchResultDto(String title, String url, String snippet, double score) {
+import java.util.List;
+
+/** One hit. {@code highlights} are [start, end) character offsets into {@code snippet}. */
+public record SearchResultDto(int id, String title, String url, String snippet, List<int[]> highlights, double score) {
 }

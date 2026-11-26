@@ -7,4 +7,4 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 }
 
 docker compose up -d --wait
-Write-Host "PostgreSQL and Redis are running on localhost:5432 and localhost:6379."
+Write-Host "PostgreSQL is running on localhost:5432."

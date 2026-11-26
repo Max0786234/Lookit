@@ -9,7 +9,7 @@ import com.searchengine.processor.TextProcessor;
 import com.searchengine.query.SearchResult;
 import com.searchengine.query.SearchService;
 import com.searchengine.ranking.Bm25Ranker;
-import org.springframework.cache.annotation.Cacheable;
+import com.searchengine.query.QueryCache;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -21,6 +21,7 @@ public class SearchEngineService {
     private final InvertedIndex index;
     private final DocumentRepository documentRepository;
     private final DocumentLoaderService documentLoaderService;
+    private final QueryCache<List<SearchResult>> queryCache = new QueryCache<>(512);
 
     public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService) {
         this.documentRepository = documentRepository;
@@ -76,9 +77,10 @@ public class SearchEngineService {
                 "Search engines use an inverted index and ranking algorithms to retrieve documents.");
     }
 
-    @Cacheable(value = "searchResults", key = "#query.trim().toLowerCase()")
+
     public List<SearchResult> search(String query) {
-        return searchService.search(query);
+        String key = query.trim().toLowerCase(java.util.Locale.ROOT);
+        return queryCache.get(index.generation(), key, () -> List.copyOf(searchService.search(query)));
     }
 
     public Optional<Document> getDocument(int id) {

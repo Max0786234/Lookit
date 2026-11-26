@@ -17,3 +17,10 @@ Short records of *why* things are the way they are. Format: context → decision
 - Decision: `analysis`, `index`, `search`, `vector`, `eval` packages have no Spring imports. Spring
   services wrap them.
 - Consequence: benchmarks run as plain `main` programs; unit tests are fast.
+
+## ADR-004 — Generation-keyed query cache instead of Spring/Redis cache
+- Context: `@Cacheable` results were never evicted, so searches after a crawl or document upload
+  returned stale results. Redis was configured but unused, and `SearchResult` is not serializable.
+- Decision: an in-engine LRU keyed on `(index.generation(), normalisedQuery)`. Every index mutation
+  bumps the generation, so invalidation cannot be forgotten. Redis dependency removed.
+- Consequence: cache is per-process (fine for a single-node engine); no external service needed to run.

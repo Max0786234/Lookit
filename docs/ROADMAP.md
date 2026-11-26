@@ -29,10 +29,10 @@ backed by a number.
 - [x] Lucene BM25 baseline (test scope only)
 
 ## M3 — Ranking + query language
-- [ ] BM25F with tuned field weights
-- [ ] Query parser: AND / OR / NOT, "phrases", field:term, prefix*
+- [x] BM25F with tuned field weights
+- [x] Query parser: AND / OR / NOT, "phrases", field:term, prefix*
 - [x] Top-k heap
-- [ ] Highlighted snippets
+- [x] Highlighted snippets
 
 ## M4 — On-disk index
 - [ ] Postings codec (delta + varint)

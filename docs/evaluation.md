@@ -6,7 +6,7 @@ All ranking changes are measured on [BEIR](https://github.com/beir-cellar/beir) 
 ## Reproduce
 
 ```sh
-scripts/fetch-scifact.sh            # or scripts/fetch-scifact.ps1 on Windows
+scripts/fetch-beir.sh scifact       # or scripts\fetch-beir.ps1 scifact on Windows
 mvn -q compile exec:java -Dexec.args="data/beir/scifact"
 # with the Lucene reference systems (test classpath):
 mvn -q test-compile exec:java -Dexec.classpathScope=test \

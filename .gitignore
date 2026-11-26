@@ -24,7 +24,7 @@ frontend/.vite/
 # Editor settings
 .vscode/
 
-# Downloaded evaluation datasets (see scripts/fetch-scifact.sh)
+# Downloaded evaluation datasets (see scripts/fetch-beir.sh)
 data/beir/
 # Local index data
 data/index/

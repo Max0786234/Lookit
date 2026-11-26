@@ -44,3 +44,10 @@ Short records of *why* things are the way they are. Format: context → decision
 - Decision: Lucene's 33-word English list; removed tokens still consume a position so
   "bank of america" does not match "bank america". Latin diacritics folded, other scripts untouched.
 - Consequence: index size grows slightly vs a long stop list; IDF handles frequent terms.
+
+## ADR-008 — BM25F as the default ranking function, tuned on train only
+- Context: per-field BM25 summed over title and body scored 0.6675 nDCG@10 on SciFact, below
+  Lucene's single-field 0.6826: a term in both fields was saturated twice.
+- Decision: BM25F (field-weighted, per-field length-normalised tf, one saturation), with
+  df = max over fields. Parameters grid-searched on SciFact *train*; test is reported only.
+- Consequence: 0.6922 test nDCG@10. Field-restricted queries (`title:x`) still use plain BM25.

@@ -52,3 +52,20 @@ Observations:
   measurable target.
 - Lucene latency here includes classic query-parser and stored-field lookup per hit, so it is not a
   like-for-like speed comparison; M4 adds a proper benchmark.
+
+### M3 — BM25F (2026-11-26)
+
+Parameters tuned by grid search on the **train** split (809 queries, `eval/Bm25fTuner`):
+k1 ∈ {0.6…1.5}, title weight ∈ {0.5…3}, b_title, b_body ∈ {0.3…0.9}. Best: k1 = 0.9,
+title weight 2.0, b_title = 0.6, b_body = 0.9 (train nDCG@10 0.7065). Test results:
+
+| System | nDCG@10 | MRR@10 | Recall@100 | mean ms | p95 ms |
+|---|---|---|---|---|---|
+| bm25 (per-field sum) | 0.6675 | 0.6294 | 0.9109 | 1.09 | 2.47 |
+| bm25f-untuned (k1 1.2, w 1, b 0.75) | 0.6895 | 0.6517 | 0.9276 | 0.86 | 1.93 |
+| **bm25f (tuned)** | **0.6922** | **0.6571** | 0.9280 | 0.77 | 1.65 |
+| lucene-bm25-flat | 0.6826 | 0.6464 | 0.9282 | 3.87 | 7.36 |
+
+- Combining field frequencies before saturation is worth +0.022 on its own; tuning adds +0.003.
+  The structural fix matters far more than the parameters, which is reassuring about overfitting.
+- BM25F is now the engine default (`SearchEngine.inMemory()`).

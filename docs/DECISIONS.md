@@ -24,3 +24,23 @@ Short records of *why* things are the way they are. Format: context → decision
 - Decision: an in-engine LRU keyed on `(index.generation(), normalisedQuery)`. Every index mutation
   bumps the generation, so invalidation cannot be forgotten. Redis dependency removed.
 - Consequence: cache is per-process (fine for a single-node engine); no external service needed to run.
+
+## ADR-005 — Doc-at-a-time scoring over doc-ordered postings
+- Context: the prototype accumulated scores term-at-a-time in a HashMap and sorted every match.
+- Decision: postings are ordered by doc id and exposed as cursors with `advance()`; queries compile
+  to scorer trees (conjunction, disjunction, exclusion, phrase) iterated doc-at-a-time into a
+  bounded top-k heap.
+- Consequence: boolean operators and phrases compose naturally, memory is O(k) not O(matches),
+  and dynamic pruning (WAND) can be added without changing callers.
+
+## ADR-006 — External document ids are the engine's doc ids
+- Context: database ids are already unique, increasing integers.
+- Decision: postings are keyed by the database id rather than a separate dense internal id.
+- Consequence: no id-mapping table; a re-added document simply replaces the old one. Segments (M4)
+  merge postings by id order instead of by base offset.
+
+## ADR-007 — Short stopword list, Porter stemmer, position gaps
+- Context: stemming improves recall on English; aggressive stopword lists break phrases.
+- Decision: Lucene's 33-word English list; removed tokens still consume a position so
+  "bank of america" does not match "bank america". Latin diacritics folded, other scripts untouched.
+- Consequence: index size grows slightly vs a long stop list; IDF handles frequent terms.

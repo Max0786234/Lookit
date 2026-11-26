@@ -18,9 +18,9 @@ backed by a number.
 - [x] SLF4J everywhere, drop unused Redis
 
 ## M1 — Index seam + analyzer
-- [ ] `IndexReader` interface; search depends on it, not on a concrete index
-- [ ] Analyzer pipeline: Unicode tokenizer (with offsets), lower-case, stopwords, Porter stemmer
-- [ ] Fielded documents (title / body) with per-field positions and lengths
+- [x] `IndexReader` interface; search depends on it, not on a concrete index
+- [x] Analyzer pipeline: Unicode tokenizer (with offsets), lower-case, stopwords, Porter stemmer
+- [x] Fielded documents (title / body) with per-field positions and lengths
 
 ## M2 — Evaluation (moved early on purpose)
 - [ ] BEIR loader (SciFact: 5k docs, 300 test queries)
@@ -31,7 +31,7 @@ backed by a number.
 ## M3 — Ranking + query language
 - [ ] BM25F with tuned field weights
 - [ ] Query parser: AND / OR / NOT, "phrases", field:term, prefix*
-- [ ] Top-k heap
+- [x] Top-k heap
 - [ ] Highlighted snippets
 
 ## M4 — On-disk index

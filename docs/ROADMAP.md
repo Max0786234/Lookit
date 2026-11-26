@@ -23,10 +23,10 @@ backed by a number.
 - [x] Fielded documents (title / body) with per-field positions and lengths
 
 ## M2 — Evaluation (moved early on purpose)
-- [ ] BEIR loader (SciFact: 5k docs, 300 test queries)
-- [ ] Metrics: nDCG@10, MRR@10, Recall@100
-- [ ] CLI benchmark runner + results table in `docs/evaluation.md`
-- [ ] Lucene BM25 baseline (test scope only)
+- [x] BEIR loader (SciFact: 5k docs, 300 test queries)
+- [x] Metrics: nDCG@10, MRR@10, Recall@100
+- [x] CLI benchmark runner + results table in `docs/evaluation.md`
+- [x] Lucene BM25 baseline (test scope only)
 
 ## M3 — Ranking + query language
 - [ ] BM25F with tuned field weights

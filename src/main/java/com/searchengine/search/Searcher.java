@@ -63,7 +63,7 @@ public class Searcher {
         return union(perField);
     }
 
-    private Scorer phraseScorer(Query.Phrase phrase) {
+    protected Scorer phraseScorer(Query.Phrase phrase) {
         if (phrase.terms().size() == 1) {
             return termScorer(phrase.field(), phrase.terms().get(0));
         }

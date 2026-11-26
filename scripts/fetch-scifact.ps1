@@ -6,4 +6,5 @@ New-Item -ItemType Directory -Force $dir | Out-Null
 Invoke-WebRequest "https://huggingface.co/datasets/BeIR/scifact/resolve/$rev/corpus.jsonl.gz" -OutFile "$dir\corpus.jsonl.gz"
 Invoke-WebRequest "https://huggingface.co/datasets/BeIR/scifact/resolve/$rev/queries.jsonl.gz" -OutFile "$dir\queries.jsonl.gz"
 Invoke-WebRequest "https://huggingface.co/datasets/BeIR/scifact-qrels/resolve/main/test.tsv" -OutFile "$dir\test.tsv"
+Invoke-WebRequest "https://huggingface.co/datasets/BeIR/scifact-qrels/resolve/main/train.tsv" -OutFile "$dir\train.tsv"
 Write-Host "SciFact ready in $dir"

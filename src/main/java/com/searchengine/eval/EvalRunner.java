@@ -4,7 +4,9 @@ import com.searchengine.analysis.Analyzer;
 import com.searchengine.analysis.Stopwords;
 import com.searchengine.document.Document;
 import com.searchengine.index.MemoryIndex;
+import com.searchengine.index.Fields;
 import com.searchengine.search.Bm25Similarity;
+import com.searchengine.search.Bm25fSearcher;
 import com.searchengine.search.SearchEngine;
 import com.searchengine.search.Searcher;
 import com.searchengine.search.Similarity;
@@ -39,6 +41,9 @@ public final class EvalRunner {
         SYSTEMS.put("bm25-nostem", ds -> engine(ds, Analyzer.of(Stopwords.ENGLISH, false), new Bm25Similarity(),
                 SearchEngine.defaultBoosts()));
         SYSTEMS.put("bm25", ds -> engine(ds, Analyzer.english(), new Bm25Similarity(), SearchEngine.defaultBoosts()));
+        SYSTEMS.put("bm25f-untuned", ds -> bm25f(ds, 1.2, Map.of(
+                Fields.TITLE, new Bm25fSearcher.FieldParams(1.0, 0.75), Fields.BODY, new Bm25fSearcher.FieldParams(1.0, 0.75))));
+        SYSTEMS.put("bm25f", ds -> bm25f(ds, SearchEngine.BM25F_K1, SearchEngine.defaultBm25fParams()));
     }
 
     private EvalRunner() {
@@ -92,6 +97,12 @@ public final class EvalRunner {
         IndexedCorpus corpus = IndexedCorpus.build(ds, analyzer);
         Searcher searcher = new Searcher(corpus.index(), similarity, boosts);
         SearchEngine engine = new SearchEngine(corpus.index(), searcher);
+        return (query, k) -> corpus.toExternal(engine.topDocs(query, k));
+    }
+
+    public static Evaluator.Retriever bm25f(BeirDataset ds, double k1, Map<String, Bm25fSearcher.FieldParams> params) {
+        IndexedCorpus corpus = IndexedCorpus.build(ds, Analyzer.english());
+        SearchEngine engine = new SearchEngine(corpus.index(), new Bm25fSearcher(corpus.index(), k1, params));
         return (query, k) -> corpus.toExternal(engine.topDocs(query, k));
     }
 

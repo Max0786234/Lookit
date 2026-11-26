@@ -391,6 +391,10 @@ final class Scorers {
             return matches;
         }
 
+        int phraseFreq() {
+            return phraseFreq;
+        }
+
         @Override
         public double score() {
             return sim.score(phraseFreq, reader.fieldLength(field, doc));

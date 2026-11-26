@@ -28,6 +28,11 @@ public record BeirDataset(String name, List<CorpusDoc> corpus, Map<String, Strin
     }
 
     public static BeirDataset load(Path dir) throws IOException {
+        return load(dir, "test");
+    }
+
+    /** @param split qrels split to load ("test", "train", "dev"); queries are filtered to it */
+    public static BeirDataset load(Path dir, String split) throws IOException {
         ObjectMapper json = new ObjectMapper();
         List<CorpusDoc> corpus = new ArrayList<>();
         try (BufferedReader r = open(dir, "corpus.jsonl")) {
@@ -41,7 +46,7 @@ public record BeirDataset(String name, List<CorpusDoc> corpus, Map<String, Strin
         }
 
         Map<String, Map<String, Integer>> qrels = new LinkedHashMap<>();
-        Path qrelsFile = Files.exists(dir.resolve("test.tsv")) ? dir.resolve("test.tsv") : dir.resolve("qrels/test.tsv");
+        Path qrelsFile = Files.exists(dir.resolve(split + ".tsv")) ? dir.resolve(split + ".tsv") : dir.resolve("qrels/" + split + ".tsv");
         for (String line : Files.readAllLines(qrelsFile, StandardCharsets.UTF_8)) {
             String[] parts = line.split("\t");
             if (parts.length < 3 || parts[0].equals("query-id")) {
@@ -66,7 +71,7 @@ public record BeirDataset(String name, List<CorpusDoc> corpus, Map<String, Strin
                 }
             }
         }
-        return new BeirDataset(dir.getFileName().toString(), corpus, queries, qrels);
+        return new BeirDataset(dir.getFileName() + (split.equals("test") ? "" : "/" + split), corpus, queries, qrels);
     }
 
     private static BufferedReader open(Path dir, String name) throws IOException {

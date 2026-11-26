@@ -35,10 +35,19 @@ public final class SearchEngine {
         this.snippets = new SnippetGenerator(analyzer::normalize, SNIPPET_WORDS);
     }
 
-    /** English analyzer, in-memory index, BM25 over title and body. */
+    /** BM25F k1 tuned on SciFact train (docs/evaluation.md). */
+    public static final double BM25F_K1 = 0.9;
+
+    /** English analyzer, in-memory index, BM25F over title and body with tuned parameters. */
     public static SearchEngine inMemory() {
         MemoryIndex index = new MemoryIndex(Analyzer.english());
-        return new SearchEngine(index, new Searcher(index, new Bm25Similarity(), defaultBoosts()));
+        return new SearchEngine(index, new Bm25fSearcher(index, BM25F_K1, defaultBm25fParams()));
+    }
+
+    /** Field weight and length normalisation tuned on SciFact train: title counts double. */
+    public static Map<String, Bm25fSearcher.FieldParams> defaultBm25fParams() {
+        return Map.of(Fields.TITLE, new Bm25fSearcher.FieldParams(2.0, 0.6),
+                Fields.BODY, new Bm25fSearcher.FieldParams(1.0, 0.9));
     }
 
     public static Map<String, Double> defaultBoosts() {

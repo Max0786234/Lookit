@@ -42,4 +42,40 @@ class InvertedIndexTest {
         assertEquals(3.0, index.averageDocumentLength(), 0.0001);
         assertEquals(3, index.vocabularySize());
     }
+
+    @Test
+    void removeAndReAddKeepStatisticsConsistent() {
+        InvertedIndex index = new InvertedIndex(textProcessor);
+        index.addDocument(new Document(1, "Java", "u1", "java java"));
+        index.addDocument(new Document(2, "Search", "u2", "search"));
+        long generationBefore = index.generation();
+
+        assertTrue(index.removeDocument(1));
+        assertEquals(1, index.documentCount());
+        assertEquals(0, index.documentFrequency("java"));
+        assertEquals(2.0, index.averageDocumentLength(), 0.0001);
+        assertTrue(index.generation() > generationBefore);
+
+        // re-adding the same id replaces rather than double counts
+        index.addDocument(new Document(2, "Search", "u2", "search engine"));
+        assertEquals(1, index.documentCount());
+        assertEquals(3, index.totalLength());
+    }
+
+    @Test
+    void concurrentWritesAndReadsDoNotCorruptIndex() throws Exception {
+        InvertedIndex index = new InvertedIndex(textProcessor);
+        Thread writer = new Thread(() -> {
+            for (int i = 0; i < 2000; i++) {
+                index.addDocument(new Document(i, "doc " + i, "u" + i, "shared term number " + i));
+            }
+        });
+        writer.start();
+        while (writer.isAlive()) {
+            index.getPostings("shared").forEach(p -> p.frequency());
+            index.averageDocumentLength();
+        }
+        writer.join();
+        assertEquals(2000, index.documentFrequency("shared"));
+    }
 }

@@ -83,7 +83,7 @@ public final class SearchEngine {
         long started = System.nanoTime();
         int from = (page - 1) * size;
         if (from >= MAX_RESULT_WINDOW) {
-            return new Results(0, List.of(), elapsedMs(started));
+            return new Results(0, false, List.of(), elapsedMs(started));
         }
         TopDocs top = topDocs(text, from + size);
         Predicate<String> highlight = highlighter(parse(text));
@@ -93,7 +93,7 @@ public final class SearchEngine {
             index.document(sd.docId()).ifPresent(doc ->
                     hits.add(new Hit(doc, sd.score(), snippets.generate(doc.content(), highlight))));
         }
-        return new Results(top.totalHits(), hits, elapsedMs(started));
+        return new Results(top.totalHits(), top.totalHitsIsLowerBound(), hits, elapsedMs(started));
     }
 
     /** Which index terms of a document should be highlighted for this query. */
@@ -122,6 +122,7 @@ public final class SearchEngine {
     public record Hit(Document document, double score, SnippetGenerator.Snippet snippet) {
     }
 
-    public record Results(long total, List<Hit> hits, long tookMs) {
+    /** @param totalIsLowerBound true when WAND skipped documents, so {@code total} is "at least" */
+    public record Results(long total, boolean totalIsLowerBound, List<Hit> hits, long tookMs) {
     }
 }

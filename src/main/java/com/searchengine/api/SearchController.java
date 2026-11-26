@@ -58,7 +58,7 @@ public class SearchController {
                         hit.snippet().highlights().stream().map(h -> new int[]{h.start(), h.end()}).toList(),
                         hit.score()))
                 .toList();
-        return new SearchResponseDto(q, result.total(), page, size, result.tookMs(), items);
+        return new SearchResponseDto(q, result.total(), result.totalIsLowerBound(), page, size, result.tookMs(), items);
     }
 
     @GetMapping("/documents")

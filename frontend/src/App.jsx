@@ -23,6 +23,7 @@ function App() {
   const [results, setResults] = useState([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [totalIsLowerBound, setTotalIsLowerBound] = useState(false)
   const [tookMs, setTookMs] = useState(null)
   const [loading, setLoading] = useState(false)
   const [crawlUrl, setCrawlUrl] = useState('https://example.com')
@@ -67,6 +68,7 @@ function App() {
       setResults(data.results ?? [])
       setPage(data.page)
       setTotal(data.total)
+      setTotalIsLowerBound(data.totalIsLowerBound)
       setTookMs(data.tookMs)
     } catch (error) {
       console.error('Search failed', error)
@@ -82,7 +84,8 @@ function App() {
     runSearch(1)
   }
 
-  const pageCount = Math.ceil(total / PAGE_SIZE)
+  // With WAND pruning the total is a lower bound: allow "Next" while pages keep coming back full.
+  const pageCount = Math.max(Math.ceil(total / PAGE_SIZE), totalIsLowerBound && results.length === PAGE_SIZE ? page + 1 : 0)
 
   const handleCrawl = async (event) => {
     event.preventDefault()
@@ -164,7 +167,7 @@ function App() {
           <section className="results-panel">
             {tookMs !== null && (
               <p className="result-summary">
-                {total} result{total === 1 ? '' : 's'} · {tookMs} ms
+                {totalIsLowerBound ? 'more than ' : ''}{total} result{total === 1 && !totalIsLowerBound ? '' : 's'} · {tookMs} ms
               </p>
             )}
             {results.length === 0 ? (
@@ -189,7 +192,7 @@ function App() {
                 <button type="button" disabled={page <= 1 || loading} onClick={() => runSearch(page - 1)}>
                   Previous
                 </button>
-                <span>Page {page} of {pageCount}</span>
+                <span>Page {page}{totalIsLowerBound ? '' : ` of ${pageCount}`}</span>
                 <button type="button" disabled={page >= pageCount || loading} onClick={() => runSearch(page + 1)}>
                   Next
                 </button>

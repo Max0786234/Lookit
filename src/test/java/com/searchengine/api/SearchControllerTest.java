@@ -42,7 +42,7 @@ class SearchControllerTest {
 
     @Test
     void searchEndpointReturnsResults() throws Exception {
-        when(searchEngineService.search("java search", 1, 10)).thenReturn(new SearchEngine.Results(1, List.of(
+        when(searchEngineService.search("java search", 1, 10)).thenReturn(new SearchEngine.Results(1, false, List.of(
                 new SearchEngine.Hit(new Document(1, "Java Search Engine", "local://java-search-engine",
                         "Java is a powerful language."), 0.95,
                         new SnippetGenerator.Snippet("Java is a powerful language.",

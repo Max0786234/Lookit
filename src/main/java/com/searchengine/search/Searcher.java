@@ -33,13 +33,34 @@ public class Searcher {
         return reader;
     }
 
+    /** Top k with WAND pruning for pure disjunctions; identical results to {@link #searchExhaustive}. */
     public TopDocs search(Query query, int k) {
         Scorer scorer = scorer(query);
+        if (wand && scorer instanceof Scorers.Disjunction d) {
+            return Wand.search(d.subs(), k);
+        }
+        return exhaustive(scorer, k);
+    }
+
+    /** Scores every matching document (exact total hit count). */
+    public TopDocs searchExhaustive(Query query, int k) {
+        return exhaustive(scorer(query), k);
+    }
+
+    private static TopDocs exhaustive(Scorer scorer, int k) {
         TopKCollector collector = new TopKCollector(k);
         for (int doc = scorer.nextDoc(); doc != Scorer.NO_MORE_DOCS; doc = scorer.nextDoc()) {
             collector.collect(doc, scorer.score());
         }
         return collector.topDocs(false);
+    }
+
+    private boolean wand = true;
+
+    /** Turns WAND pruning on or off (off is useful for benchmarks and exact hit counts). */
+    public Searcher wand(boolean enabled) {
+        this.wand = enabled;
+        return this;
     }
 
     protected Scorer scorer(Query query) {
@@ -57,7 +78,8 @@ public class Searcher {
             PostingsEnum postings = reader.postings(f.getKey(), term);
             if (postings.cost() > 0) {
                 Similarity.SimScorer sim = similarity.scorer(reader, f.getKey(), List.of(term), f.getValue());
-                perField.add(new Scorers.TermScorer(postings, sim, reader, f.getKey()));
+                perField.add(new Scorers.TermScorer(postings, sim, reader, f.getKey(),
+                        reader.maxTermFreq(f.getKey(), term), reader.minFieldLength(f.getKey(), term)));
             }
         }
         return union(perField);

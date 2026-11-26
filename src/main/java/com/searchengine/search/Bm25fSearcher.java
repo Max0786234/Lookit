@@ -51,7 +51,11 @@ public final class Bm25fSearcher extends Searcher {
         for (Map.Entry<String, FieldParams> e : params.entrySet()) {
             PostingsEnum p = reader.postings(e.getKey(), term);
             if (p.cost() > 0) {
-                sources.add(new Source(new PostingsFreq(p), e.getKey(), e.getValue()));
+                FieldParams fp = e.getValue();
+                double avg = Math.max(reader.avgFieldLength(e.getKey()), 1e-9);
+                double bound = fp.weight() * reader.maxTermFreq(e.getKey(), term)
+                        / (1 - fp.b() + fp.b() * reader.minFieldLength(e.getKey(), term) / avg);
+                sources.add(new Source(new PostingsFreq(p), e.getKey(), fp, bound));
                 maxDf = Math.max(maxDf, reader.docFreq(e.getKey(), term));
             }
         }
@@ -70,7 +74,7 @@ public final class Bm25fSearcher extends Searcher {
         for (Map.Entry<String, FieldParams> e : params.entrySet()) {
             Scorer s = super.phraseScorer(new Query.Phrase(e.getKey(), phrase.terms(), phrase.positions()));
             if (s instanceof Scorers.PhraseScorer ps) {
-                sources.add(new Source(new PhraseFreq(ps), e.getKey(), e.getValue()));
+                sources.add(new Source(new PhraseFreq(ps), e.getKey(), e.getValue(), Double.POSITIVE_INFINITY));
             }
         }
         if (sources.isEmpty()) {
@@ -144,7 +148,8 @@ public final class Bm25fSearcher extends Searcher {
         }
     }
 
-    private record Source(FreqIterator it, String field, FieldParams params) {
+    /** @param maxTf upper bound of this source's weighted, length-normalised tf (for WAND) */
+    private record Source(FreqIterator it, String field, FieldParams params, double maxTf) {
     }
 
     private final class Bm25fScorer extends Scorer {
@@ -209,7 +214,11 @@ public final class Bm25fSearcher extends Searcher {
 
         @Override
         public double maxScore() {
-            return idf * (k1 + 1);
+            double tf = 0;
+            for (Source s : sources) {
+                tf += s.maxTf();
+            }
+            return Double.isInfinite(tf) ? idf * (k1 + 1) : idf * tf * (k1 + 1) / (k1 + tf);
         }
 
         @Override

@@ -50,12 +50,20 @@ final class Scorers {
         private final Similarity.SimScorer sim;
         private final IndexReader reader;
         private final String field;
+        private final double maxScore;
 
-        TermScorer(PostingsEnum postings, Similarity.SimScorer sim, IndexReader reader, String field) {
+        /**
+         * @param maxTermFreq   upper bound on tf for this term (from index statistics)
+         * @param minFieldLength lower bound on field length among docs with the term
+         */
+        TermScorer(PostingsEnum postings, Similarity.SimScorer sim, IndexReader reader, String field,
+                   int maxTermFreq, int minFieldLength) {
             this.postings = postings;
             this.sim = sim;
             this.reader = reader;
             this.field = field;
+            // BM25 and TF-IDF increase with tf and decrease with length, so this bounds every doc
+            this.maxScore = Math.min(sim.maxScore(), sim.score(maxTermFreq, minFieldLength));
         }
 
         @Override
@@ -80,7 +88,7 @@ final class Scorers {
 
         @Override
         public double maxScore() {
-            return sim.maxScore();
+            return maxScore;
         }
 
         @Override
@@ -96,6 +104,10 @@ final class Scorers {
 
         Disjunction(List<Scorer> subs) {
             this.subs = subs;
+        }
+
+        List<Scorer> subs() {
+            return subs;
         }
 
         @Override

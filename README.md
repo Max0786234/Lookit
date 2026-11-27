@@ -1,190 +1,126 @@
-# Search Engine Project
+# Lookit
 
-Java-based search engine application built with Spring Boot and Maven.
+A search engine written from scratch in Java 21: crawler → analyzer → on-disk inverted index →
+query parser → BM25F + WAND → dense vectors + HNSW → hybrid fusion → REST API → React UI.
 
-## Current Stack
+The engine core (`analysis`, `index`, `search`, `vector`, `crawler`, `eval`) is plain Java with no
+Spring, so it can be benchmarked and evaluated on its own; Spring Boot is a thin API and persistence
+shell around it. Lucene is used **only** in tests, as a reference baseline.
 
-- Java: 25
-- Spring Boot: 3.5.4
-- Maven: 3.9.16
-- Database: H2 by default, PostgreSQL profile available
-- Cache: Redis support available
+## Results
 
-## Project Overview
+Retrieval quality on [BEIR](https://github.com/beir-cellar/beir) benchmarks (nDCG@10, higher is better):
 
-This project provides a simple search engine API with:
+| System | SciFact (5k docs) | FiQA (57k docs) |
+|---|---|---|
+| TF-IDF | 0.584 | — |
+| BM25, per-field sum | 0.668 | 0.249 |
+| Lucene 9.12 BM25 (reference) | 0.683 | 0.254 |
+| **BM25F** (tuned on train split) | **0.691** | 0.248 |
+| Dense: all-MiniLM-L6-v2 + HNSW | 0.645 | see [evaluation](docs/evaluation.md) |
+| **Hybrid: BM25F + dense, RRF** | **0.721** | see [evaluation](docs/evaluation.md) |
 
-- document indexing and search
-- basic ranking and phrase search
-- crawler support for fetching and indexing pages
-- REST endpoints for search, document management, and crawling
-- a local H2-backed default profile for easy startup
+Performance on FiQA (57k docs, single thread, k = 10): WAND scores **22× fewer documents** than
+exhaustive evaluation with an identical top 10; p50 latency 2.3 ms on memory-mapped segments;
+859 QPS on 4 threads. Details: [docs/evaluation.md](docs/evaluation.md) · [docs/performance.md](docs/performance.md).
 
-## Architecture / project flow
+## Features
+
+| Layer | What is implemented |
+|---|---|
+| Analysis | Unicode tokenizer with offsets, Latin accent folding, CJK unigrams, 33 stopwords with position gaps, Porter stemmer (validated on the reference vocabulary) |
+| Index | Fielded positional postings; immutable memory-mapped segments (delta + varint, 128-doc skip blocks); RAM buffer → flush; tombstone deletes; postings-level k-way merges; atomic manifest commits |
+| Query | `AND` `OR` `NOT` `+` `-`, `"phrases"` (stopword-aware), `title:` / `body:`, `prefix*`, parentheses; never throws on malformed input |
+| Ranking | BM25F, BM25, TF-IDF; doc-at-a-time scorers; top-k heap; **WAND** with stored per-term score bounds; PageRank prior |
+| Semantic | all-MiniLM-L6-v2 on ONNX Runtime with a Java WordPiece tokenizer; **HNSW** index; **Reciprocal Rank Fusion** hybrid |
+| Assistance | Spelling correction ("did you mean", Damerau–Levenshtein over a trigram index), autocomplete |
+| Crawler | Polite per-host frontier, **RFC 9309 robots.txt**, Crawl-delay, robots meta / nofollow, **SimHash** near-duplicate detection, link graph + **PageRank**, async jobs |
+| Evaluation | BEIR loader, nDCG@10 / MRR@10 / Recall@100, train-split tuning, Lucene baseline, latency/QPS/index-size benchmark |
+| Service | REST API with validation and RFC 9457 errors, OpenAPI/Swagger UI, Prometheus metrics, H2 or PostgreSQL, Docker compose |
+
+## Architecture
 
 ```mermaid
 flowchart LR
-    A[Browser / User] --> B[React Frontend]
-    B --> C[Spring Boot REST API]
-    C --> D[SearchEngineService]
-    D --> E[Inverted Index]
-    D --> F[Document Repository]
-    D --> G[Document Loader]
-    H[Crawler / Web Fetcher] --> D
-    E --> I[SearchService]
-    I --> J[Ranker / BM25]
-    J --> C
-    F --> K[(H2 / PostgreSQL)]
-    L[(Redis Cache)] --> C
+    UI[React UI] --> API[Spring REST API]
+    API --> SE[SearchEngine facade]
+    SE --> QP[QueryParser] --> S[Bm25fSearcher + WAND]
+    SE --> D[Encoder + HNSW]
+    S & D --> F[RRF fusion + PageRank prior]
+    S --> IR[IndexReader]
+    IR --> MR[MultiReader]
+    MR --> SEG[(mmap segments)]
+    MR --> BUF[RAM buffer]
+    API --> CJ[Crawl jobs] --> CR[Crawler: frontier, robots, SimHash] --> DB[(H2 / PostgreSQL)]
+    CJ --> PR[PageRank] --> F
+    DB -. source of truth .-> SE
 ```
 
-This keeps the project understandable: the frontend calls the API, the backend builds and queries an inverted index, documents are persisted in a database, and the crawler can add new content to the corpus.
+Design decisions and their reasons are recorded as ADRs in [docs/DECISIONS.md](docs/DECISIONS.md);
+each milestone has a short write-up in [docs/phases/](docs/phases/).
 
-## Git hygiene and environment safety
+## Quick start
 
-This repository intentionally avoids committed secrets.
+Requirements: JDK 21, Maven 3.9, Node 22 (for the UI).
 
-- Keep local environment values in a `.env` file
-- Do not commit real credentials or production passwords
-- Use `.env.example` as a template only
-- For Docker, prefer environment variables over hardcoded passwords
-
-Example local `.env`:
-
-```env
-DB_URL=jdbc:postgresql://localhost:5432/searchengine
-DB_DRIVER=org.postgresql.Driver
-DB_USERNAME=searchengine
-DB_PASSWORD=your_local_password
-DB_DIALECT=org.hibernate.dialect.PostgreSQLDialect
-REDIS_HOST=localhost
-REDIS_PORT=6379
-POSTGRES_DB=searchengine
-POSTGRES_USER=searchengine
-POSTGRES_PASSWORD=your_local_password
+```sh
+mvn -B test                       # 190+ tests
+mvn spring-boot:run               # API on http://localhost:8080 (H2, index in data/index)
+cd frontend && npm install && npm run dev   # UI on http://localhost:5173
 ```
 
-## How to Run
+Optional extras:
 
-From the project root, use the project’s provided Maven setup:
-
-```powershell
-$env:JAVA_HOME = "C:\Users\max03\.jdks\jdk-25.0.2"
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
-.\tools\apache-maven-3.9.16\bin\mvn.cmd spring-boot:run
+```sh
+scripts/fetch-model.sh            # 90 MB embedding model → enables semantic & hybrid modes
+scripts/fetch-beir.sh scifact     # evaluation dataset (also: fiqa)
+mvn -q compile exec:java -Dexec.args="data/beir/scifact"          # quality table
+mvn -q compile exec:java -Dexec.mainClass=com.searchengine.eval.Benchmark -Dexec.args="data/beir/fiqa"
+docker compose up --build         # PostgreSQL + API + UI on http://localhost:8081 (see note below)
 ```
 
-Or, if the environment is already configured:
+On Windows use the `.ps1` variants in `scripts/`. The Docker files are written but were not built in
+the development environment.
 
-```powershell
-mvn spring-boot:run
+## API
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/search?q=&page=&size=&mode=keyword\|semantic\|hybrid` | Ranked results with snippets, highlight offsets, `didYouMean` |
+| GET | `/api/suggest?q=` | Autocomplete for the last word |
+| GET / POST / DELETE | `/api/documents[/{id}]` | Read, add, delete documents |
+| POST | `/api/crawl` | Start a crawl job → `202 { jobId }` |
+| GET / DELETE | `/api/crawl/{id}` | Job status (live counters) / cancel |
+| GET | `/api/stats` | Corpus statistics |
+| GET | `/swagger-ui.html`, `/actuator/prometheus` | API docs, metrics |
+
+Query syntax examples: `"inverted index" -lucene`, `title:java +spring`, `retriev* AND (ranking OR scoring)`.
+
+## Configuration
+
+| Property (env var) | Default | |
+|---|---|---|
+| `lookit.index.dir` (`LOOKIT_INDEX_DIR`) | `data/index` | Persistent index directory; blank = in-memory |
+| `lookit.vector.model-dir` (`LOOKIT_MODEL_DIR`) | `data/models/all-MiniLM-L6-v2` | Embedding model; missing = keyword only |
+| `lookit.crawler.min-delay-ms` | `1000` | Minimum delay between requests to one host |
+| `lookit.ranking.pagerank-weight` | `0.3` | Weight of ln(PageRank) prior (ADR-012) |
+| `spring.profiles.active=postgres` + `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | H2 | Use PostgreSQL |
+
+## Project layout
+
 ```
-
-## How to Run Tests
-
-```powershell
-$env:JAVA_HOME = "C:\Users\max03\.jdks\jdk-25.0.2"
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
-.\tools\apache-maven-3.9.16\bin\mvn.cmd clean test
+src/main/java/com/searchengine/
+  analysis/   Analyzer, Porter stemmer, stopwords
+  index/      IndexReader, MemoryIndex, SegmentWriter/Reader, MultiReader, SegmentedIndex
+  search/     Query AST + parser, BM25F, scorers, WAND, RRF, snippets, suggestions, SearchEngine
+  vector/     WordPiece tokenizer, ONNX encoder, HNSW, vector store
+  crawler/    Fetcher, robots.txt, SimHash, polite Crawler, PageRank
+  eval/       BEIR loader, metrics, EvalRunner, Bm25fTuner, Benchmark
+  api/ service/ document/   Spring layer
+frontend/     React + Vite UI
+docs/         ROADMAP, DECISIONS (ADRs), evaluation, performance, phase write-ups
 ```
-
-The project is currently verified to pass under Java 25.
-
-## Local Setup
-
-This machine is configured with:
-
-- JDK 25: `C:\Users\max03\.jdks\jdk-25.0.2`
-- Maven 3.9.16: `tools/apache-maven-3.9.16`
-
-Use these commands in PowerShell to verify the environment:
-
-```powershell
-java -version
-javac -version
-mvn -version
-```
-
-## Database Profiles
-
-### Default local profile
-
-The application starts with H2 by default, which is convenient for local development and testing.
-
-### PostgreSQL profile
-
-To run with PostgreSQL and Redis support:
-
-```powershell
-# start local services
-powershell -ExecutionPolicy Bypass -File .\scripts\start-local-services.ps1
-
-# run with PostgreSQL profile
-mvn spring-boot:run -Dspring-boot.run.arguments="--spring.profiles.active=postgres"
-```
-
-Environment variables supported for the DB profile:
-
-```text
-DB_URL=jdbc:postgresql://localhost:5432/searchengine
-DB_USERNAME=searchengine
-DB_PASSWORD=your_local_password
-DB_DRIVER=org.postgresql.Driver
-CACHE_TYPE=simple
-```
-
-## Main API Endpoints
-
-### Search
-
-```http
-GET /api/search?q=java search
-```
-
-### Get all documents
-
-```http
-GET /api/documents
-```
-
-### Get a single document
-
-```http
-GET /api/documents/1
-```
-
-### Create a document
-
-```http
-POST /api/documents
-Content-Type: application/json
-
-{
-  "title": "New Java Article",
-  "url": "local://new-java-article",
-  "content": "Java article about search and ranking."
-}
-```
-
-### Crawl a seed URL
-
-```http
-POST /api/crawl
-Content-Type: application/json
-
-{
-  "seedUrl": "https://example.com",
-  "maxPages": 2,
-  "maxDepth": 1
-}
-```
-
-## Notes
-
-- The Maven build is now the canonical project workflow.
-- Java 25 and Spring Boot 3.5.4 are the current verified runtime targets.
-- The project is intended for local learning and iterative backend development, with optional PostgreSQL/Redis-backed profiles for more realistic usage.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).

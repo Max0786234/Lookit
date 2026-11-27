@@ -90,3 +90,32 @@ Short records of *why* things are the way they are. Format: context → decision
   BM25F contribution (2–6), so authority breaks near-ties but does not override text relevance.
 - Consequence: behaviour verified by tests (hub outranks an equal-text leaf; a strong text match is
   not displaced) rather than by a metric; `lookit.ranking.pagerank-weight` makes it adjustable.
+
+## ADR-013 — Dense retrieval: all-MiniLM-L6-v2 on ONNX Runtime, tokenizer in Java
+- Context: semantic search needs a real sentence encoder; calling an external embedding API would
+  make the engine depend on a network service and hide the pipeline.
+- Decision: run the sentence-transformers model in-process with ONNX Runtime (CPU); port BERT's
+  uncased BasicTokenizer + WordPiece to Java; mean-pool and L2-normalise like sentence-transformers.
+  The 90 MB model is downloaded by a script, never committed; without it the engine is keyword-only.
+- Consequence: the pipeline reproduces the published SciFact nDCG@10 (0.645), which validates
+  tokenizer and pooling. CPU encoding is slow (~20 docs/s for 256-token abstracts), so embeddings are
+  cached on disk (`vectors.vec`) and only new documents are encoded.
+
+## ADR-014 — HNSW written by hand, exact search kept as ground truth
+- Decision: HNSW with M = 16, efConstruction = 100, efSearch = 64, the diversity heuristic for
+  neighbour selection, tombstone deletes; `ExactVectorIndex` stays for measuring recall.
+- Consequence: recall is measured, not assumed (see docs/evaluation.md); the graph lives in memory
+  and is rebuilt from stored vectors at startup.
+
+## ADR-015 — Hybrid by Reciprocal Rank Fusion
+- Context: BM25F scores are unbounded and corpus-dependent; cosine similarities are in [−1, 1].
+  Linear score blending would need normalisation and per-corpus weight tuning.
+- Decision: RRF with k = 60 over the top 100 of each retriever.
+- Consequence: no tuning parameters; +0.030 nDCG@10 over BM25F on SciFact.
+
+## ADR-016 — Spelling correction only for words that match nothing
+- Decision: a query word is corrected only if its analyzed form has zero document frequency;
+  candidates come from a trigram index over surface words, ranked by Damerau–Levenshtein distance
+  then frequency.
+- Consequence: no "corrections" of valid inflections or rare-but-present terms; suggestions are
+  offered (`didYouMean`), never applied silently.

@@ -5,6 +5,8 @@ import com.searchengine.document.Document;
 import com.searchengine.index.Fields;
 import com.searchengine.index.MemoryIndex;
 import com.searchengine.index.MutableIndex;
+import com.searchengine.vector.Encoder;
+import com.searchengine.vector.VectorIndex;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -15,7 +17,8 @@ import java.util.Set;
 import java.util.function.Predicate;
 
 /**
- * Spring-free engine facade: index + query parsing + ranking + snippets + result cache.
+ * Spring-free engine facade: index + query parsing + ranking + snippets + result cache, plus the
+ * optional dense (semantic) retriever, hybrid fusion and query suggestions.
  * The REST layer, the evaluation harness and benchmarks all use this class.
  */
 public final class SearchEngine {
@@ -61,11 +64,76 @@ public final class SearchEngine {
     }
 
     public void add(Document document) {
+        add(document, dense == null ? null : embed(document));
+    }
+
+    /** Adds a document with a precomputed embedding (null when dense retrieval is off). */
+    public void add(Document document, float[] vector) {
         index.add(document);
+        if (dense != null && vector != null) {
+            dense.vectors().add(document.id(), vector);
+        }
+        synchronized (this) {
+            if (suggesterReady) {
+                suggester.add(document.title() + " " + document.content());
+            }
+        }
     }
 
     public boolean delete(int docId) {
+        if (dense != null) {
+            dense.vectors().delete(docId);
+        }
         return index.delete(docId);
+    }
+
+    // ---- dense retrieval
+
+    public enum Mode { KEYWORD, SEMANTIC, HYBRID }
+
+    /** Candidates taken from each retriever before rank fusion. */
+    static final int FUSION_DEPTH = 100;
+
+    private record Dense(Encoder encoder, VectorIndex vectors) {
+    }
+
+    private volatile Dense dense;
+
+    /** Enables semantic and hybrid modes; existing documents need vectors via {@link #add(Document, float[])}. */
+    public void enableDense(Encoder encoder, VectorIndex vectors) {
+        this.dense = new Dense(encoder, vectors);
+    }
+
+    public boolean denseEnabled() {
+        return dense != null;
+    }
+
+    public float[] embed(Document document) {
+        return dense.encoder().embed((document.title() + " " + document.content()).trim());
+    }
+
+    // ---- suggestions
+
+    private final QuerySuggester suggester = new QuerySuggester();
+    private boolean suggesterReady;
+
+    /** Built lazily from the indexed documents (a persistent index is opened without re-adding them). */
+    private synchronized QuerySuggester suggester() {
+        if (!suggesterReady) {
+            for (int id : index.docIds()) {
+                index.document(id).ifPresent(d -> suggester.add(d.title() + " " + d.content()));
+            }
+            suggesterReady = true;
+        }
+        return suggester;
+    }
+
+    public String didYouMean(String query) {
+        return suggester().didYouMean(query, index, index.analyzer());
+    }
+
+    public List<String> complete(String prefix, int limit) {
+        return suggester().complete(prefix, limit);
     }
 
     public Query parse(String text) {
@@ -74,11 +142,35 @@ public final class SearchEngine {
 
     /** Ranked ids only (no snippets) — what evaluation needs. */
     public TopDocs topDocs(String text, int k) {
+        return topDocs(text, k, Mode.KEYWORD);
+    }
+
+    public TopDocs topDocs(String text, int k, Mode mode) {
         int window = Math.min(Math.max(k, 1), MAX_RESULT_WINDOW);
+        if (mode != Mode.KEYWORD && dense == null) {
+            throw new IllegalArgumentException("semantic search is not enabled (no embedding model)");
+        }
         StaticPrior p = prior;
-        String key = text.trim().toLowerCase(Locale.ROOT) + '\u0000' + window + '\u0000' + p.version();
-        return cache.get(index.generation(), key, () -> rerank(searcher.search(parse(text),
-                p.weight() == 0 ? window : Math.max(window, PRIOR_RERANK_DEPTH)), p, window));
+        String key = text.trim().toLowerCase(Locale.ROOT) + '\u0000' + window + '\u0000' + p.version() + '\u0000' + mode;
+        return cache.get(index.generation(), key, () -> switch (mode) {
+            case KEYWORD -> rerank(searcher.search(parse(text),
+                    p.weight() == 0 ? window : Math.max(window, PRIOR_RERANK_DEPTH)), p, window);
+            case SEMANTIC -> semantic(text, window);
+            case HYBRID -> {
+                int depth = Math.max(window, FUSION_DEPTH);
+                TopDocs lexical = topDocs(text, depth, Mode.KEYWORD);
+                TopDocs semantic = semantic(text, depth);
+                List<TopDocs.ScoredDoc> fused = RankFusion.rrf(List.of(lexical.hits(), semantic.hits()),
+                        RankFusion.DEFAULT_K, window);
+                yield new TopDocs(Math.max(lexical.totalHits(), fused.size()), true, fused);
+            }
+        });
+    }
+
+    private TopDocs semantic(String text, int k) {
+        Dense d = dense;
+        List<TopDocs.ScoredDoc> hits = d.vectors().search(d.encoder().embed(text), k);
+        return new TopDocs(hits.size(), true, hits);
     }
 
     // ---- query-independent prior (PageRank)
@@ -122,12 +214,16 @@ public final class SearchEngine {
     }
 
     public Results search(String text, int page, int size) {
+        return search(text, page, size, Mode.KEYWORD);
+    }
+
+    public Results search(String text, int page, int size, Mode mode) {
         long started = System.nanoTime();
         int from = (page - 1) * size;
         if (from >= MAX_RESULT_WINDOW) {
-            return new Results(0, false, List.of(), elapsedMs(started));
+            return new Results(0, false, List.of(), elapsedMs(started), null);
         }
-        TopDocs top = topDocs(text, from + size);
+        TopDocs top = topDocs(text, from + size, mode);
         Predicate<String> highlight = highlighter(parse(text));
         List<Hit> hits = new ArrayList<>();
         for (int i = from; i < Math.min(from + size, top.hits().size()); i++) {
@@ -135,7 +231,8 @@ public final class SearchEngine {
             index.document(sd.docId()).ifPresent(doc ->
                     hits.add(new Hit(doc, sd.score(), snippets.generate(doc.content(), highlight))));
         }
-        return new Results(top.totalHits(), top.totalHitsIsLowerBound(), hits, elapsedMs(started));
+        String suggestion = page == 1 ? didYouMean(text) : null;
+        return new Results(top.totalHits(), top.totalHitsIsLowerBound(), hits, elapsedMs(started), suggestion);
     }
 
     /** Which index terms of a document should be highlighted for this query. */
@@ -164,7 +261,10 @@ public final class SearchEngine {
     public record Hit(Document document, double score, SnippetGenerator.Snippet snippet) {
     }
 
-    /** @param totalIsLowerBound true when WAND skipped documents, so {@code total} is "at least" */
-    public record Results(long total, boolean totalIsLowerBound, List<Hit> hits, long tookMs) {
+    /**
+     * @param totalIsLowerBound true when WAND (or a top-k-only retriever) skipped documents
+     * @param didYouMean        spelling-corrected query, or null
+     */
+    public record Results(long total, boolean totalIsLowerBound, List<Hit> hits, long tookMs, String didYouMean) {
     }
 }

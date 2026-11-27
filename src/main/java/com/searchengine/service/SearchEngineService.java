@@ -11,9 +11,13 @@ import com.searchengine.index.SegmentedIndex;
 import com.searchengine.loader.DocumentLoaderService;
 import com.searchengine.search.Bm25fSearcher;
 import com.searchengine.search.SearchEngine;
+import com.searchengine.vector.HnswIndex;
+import com.searchengine.vector.OnnxEncoder;
+import com.searchengine.vector.VectorStore;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -26,7 +30,10 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
@@ -45,9 +52,21 @@ public class SearchEngineService {
     private final SearchEngine engine;
     private final AtomicBoolean dirty = new AtomicBoolean();
 
+    private final Path vectorFile;
+    private final Set<Integer> vectorized = ConcurrentHashMap.newKeySet();
+
+    /** Keyword-only service (no embedding model). */
     public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService,
-                               @Value("${lookit.index.dir:}") String indexDir) {
+                               String indexDir) {
+        this(documentRepository, documentLoaderService, indexDir, "");
+    }
+
+    @Autowired
+    public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService,
+                               @Value("${lookit.index.dir:}") String indexDir,
+                               @Value("${lookit.vector.model-dir:}") String modelDir) {
         this.documentRepository = documentRepository;
+        this.vectorFile = indexDir == null || indexDir.isBlank() ? null : Path.of(indexDir).resolve("vectors.vec");
         if (documentRepository.count() == 0) {
             int loaded = documentLoaderService.loadDocumentsFromDirectory(SAMPLE_DIRECTORY);
             log.info("Empty corpus: loaded {} sample documents from {}", loaded, SAMPLE_DIRECTORY);
@@ -55,11 +74,13 @@ public class SearchEngineService {
         MutableIndex index = openIndex(indexDir);
         this.engine = new SearchEngine(index, new Bm25fSearcher(index, SearchEngine.BM25F_K1,
                 SearchEngine.defaultBm25fParams()));
+        enableDense(modelDir);
         if (index.numDocs() != documentRepository.count()) {
             int added = reindexAllDocuments();
             log.info("Indexed {} documents from the database", added);
             commit();
         }
+        backfillVectors();
         log.info("Index ready: {} documents, {} body terms", documentCount(), vocabularySize());
     }
 
@@ -100,6 +121,77 @@ public class SearchEngineService {
         return engine.search(query, page, size);
     }
 
+    public SearchEngine.Results search(String query, int page, int size, SearchEngine.Mode mode) {
+        return engine.search(query, page, size, mode);
+    }
+
+    public List<String> suggest(String prefix, int limit) {
+        return engine.complete(prefix, limit);
+    }
+
+    // ---- dense retrieval
+
+    private void enableDense(String modelDir) {
+        if (modelDir == null || modelDir.isBlank() || !Files.exists(Path.of(modelDir, "model.onnx"))) {
+            log.info("Semantic search disabled (no model at '{}'; see scripts/fetch-model.sh)", modelDir);
+            return;
+        }
+        try {
+            OnnxEncoder encoder = new OnnxEncoder(Path.of(modelDir));
+            HnswIndex vectors = new HnswIndex();
+            engine.enableDense(encoder, vectors);
+            if (vectorFile != null) {
+                VectorStore.read(vectorFile, encoder.dimension()).forEach((id, v) -> {
+                    if (engine.index().contains(id)) {
+                        vectors.add(id, v);
+                        vectorized.add(id);
+                    }
+                });
+            }
+            log.info("Semantic search enabled: {}-d embeddings, {} stored vectors", encoder.dimension(), vectorized.size());
+        } catch (IOException e) {
+            log.warn("Could not load embedding model from {}: {}", modelDir, e.toString());
+        }
+    }
+
+    /** Embeds every indexed document that has no stored vector yet. */
+    private void backfillVectors() {
+        if (!engine.denseEnabled()) {
+            return;
+        }
+        int added = 0;
+        for (int id : engine.index().docIds()) {
+            if (!vectorized.contains(id)) {
+                Optional<Document> doc = engine.index().document(id);
+                if (doc.isPresent()) {
+                    indexDocument(doc.get());
+                    added++;
+                }
+            }
+        }
+        if (added > 0) {
+            log.info("Embedded {} documents", added);
+        }
+    }
+
+    /** Adds to the engine, embedding and persisting the vector when semantic search is on. */
+    private void indexDocument(Document document) {
+        if (!engine.denseEnabled()) {
+            engine.add(document, null);
+            return;
+        }
+        float[] vector = engine.embed(document);
+        engine.add(document, vector);
+        vectorized.add(document.id());
+        if (vectorFile != null) {
+            try {
+                VectorStore.append(vectorFile, vector.length, Map.of(document.id(), vector));
+            } catch (IOException e) {
+                log.warn("Could not persist vector for doc {}: {}", document.id(), e.toString());
+            }
+        }
+    }
+
     public Optional<Document> getDocument(int id) {
         return engine.index().document(id);
     }
@@ -124,7 +216,7 @@ public class SearchEngineService {
         DocumentEntity saved = documentRepository.save(new DocumentEntity(title, url, content));
         Objects.requireNonNull(saved.getId(), "database did not assign an id");
         Document document = toDocument(saved);
-        engine.add(document);
+        indexDocument(document);
         dirty.set(true);
         return document;
     }
@@ -147,7 +239,7 @@ public class SearchEngineService {
         int added = 0;
         for (DocumentEntity entity : documentRepository.findAll()) {
             if (entity.getId() != null && !engine.index().contains(entity.getId())) {
-                engine.add(toDocument(entity));
+                indexDocument(toDocument(entity));
                 added++;
             }
         }

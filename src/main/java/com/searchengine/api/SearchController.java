@@ -6,6 +6,7 @@ import com.searchengine.api.dto.DocumentDto;
 import com.searchengine.api.dto.SearchResponseDto;
 import com.searchengine.api.dto.SearchResultDto;
 import com.searchengine.api.dto.StatsDto;
+import com.searchengine.api.dto.SuggestResponseDto;
 import com.searchengine.document.Document;
 import com.searchengine.search.SearchEngine;
 import com.searchengine.service.SearchEngineService;
@@ -42,8 +43,10 @@ public class SearchController {
     @GetMapping("/search")
     public SearchResponseDto search(@RequestParam @NotBlank @Size(max = 512) String q,
                                     @RequestParam(defaultValue = "1") @Min(1) @Max(100) int page,
-                                    @RequestParam(defaultValue = "10") @Min(1) @Max(50) int size) {
-        SearchEngine.Results result = searchEngineService.search(q, page, size);
+                                    @RequestParam(defaultValue = "10") @Min(1) @Max(50) int size,
+                                    @RequestParam(defaultValue = "keyword") String mode) {
+        SearchEngine.Mode m = parseMode(mode);
+        SearchEngine.Results result = searchEngineService.search(q, page, size, m);
         List<SearchResultDto> items = result.hits().stream()
                 .map(hit -> new SearchResultDto(
                         hit.document().id(),
@@ -53,7 +56,23 @@ public class SearchController {
                         hit.snippet().highlights().stream().map(h -> new int[]{h.start(), h.end()}).toList(),
                         hit.score()))
                 .toList();
-        return new SearchResponseDto(q, result.total(), result.totalIsLowerBound(), page, size, result.tookMs(), items);
+        return new SearchResponseDto(q, m.name().toLowerCase(java.util.Locale.ROOT), result.total(),
+                result.totalIsLowerBound(), page, size, result.tookMs(), result.didYouMean(), items);
+    }
+
+    private static SearchEngine.Mode parseMode(String mode) {
+        try {
+            return SearchEngine.Mode.valueOf(mode.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("mode must be keyword, semantic or hybrid");
+        }
+    }
+
+    /** Autocomplete: completions of the last word of {@code q}. */
+    @GetMapping("/suggest")
+    public SuggestResponseDto suggest(@RequestParam @Size(max = 200) String q,
+                                      @RequestParam(defaultValue = "8") @Min(1) @Max(20) int limit) {
+        return new SuggestResponseDto(q, searchEngineService.suggest(q, limit));
     }
 
     @GetMapping("/documents")

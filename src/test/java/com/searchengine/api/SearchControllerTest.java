@@ -33,11 +33,11 @@ class SearchControllerTest {
 
     @Test
     void searchEndpointReturnsResults() throws Exception {
-        when(searchEngineService.search("java search", 1, 10)).thenReturn(new SearchEngine.Results(1, false, List.of(
+        when(searchEngineService.search("java search", 1, 10, SearchEngine.Mode.KEYWORD)).thenReturn(new SearchEngine.Results(1, false, List.of(
                 new SearchEngine.Hit(new Document(1, "Java Search Engine", "local://java-search-engine",
                         "Java is a powerful language."), 0.95,
                         new SnippetGenerator.Snippet("Java is a powerful language.",
-                                List.of(new SnippetGenerator.Highlight(0, 4))))), 3));
+                                List.of(new SnippetGenerator.Highlight(0, 4))))), 3, "java searches"));
 
         mockMvc.perform(get("/api/search")
                         .param("q", "java search")
@@ -45,8 +45,20 @@ class SearchControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.query").value("java search"))
                 .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.mode").value("keyword"))
+                .andExpect(jsonPath("$.didYouMean").value("java searches"))
                 .andExpect(jsonPath("$.results[0].highlights[0][1]").value(4))
                 .andExpect(jsonPath("$.results[0].title").value("Java Search Engine"));
+    }
+
+    @Test
+    void suggestEndpointAndInvalidMode() throws Exception {
+        when(searchEngineService.suggest("retr", 8)).thenReturn(List.of("retrieval", "retrieve"));
+        mockMvc.perform(get("/api/suggest").param("q", "retr"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.suggestions[0]").value("retrieval"));
+        mockMvc.perform(get("/api/search").param("q", "x").param("mode", "telepathic"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

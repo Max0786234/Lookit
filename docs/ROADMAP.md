@@ -57,4 +57,4 @@ backed by a number.
 ## M7 — Polish
 - [x] Docker compose full stack, OpenAPI, metrics endpoint (Docker files not built locally)
 - [x] Frontend: pagination, highlighting, suggestions, crawl status
-- [ ] Final report
+- [x] Final report (docs/REPORT.md)

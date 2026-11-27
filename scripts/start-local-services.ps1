@@ -6,5 +6,5 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-docker compose up -d --wait
+docker compose up -d --wait postgres
 Write-Host "PostgreSQL is running on localhost:5432."

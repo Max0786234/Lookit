@@ -1,9 +1,8 @@
-version: '3.9'
-
+# Full stack: PostgreSQL + API + web UI.   docker compose up --build   → http://localhost:8081
+# Semantic search: run scripts/fetch-model.sh first; the model directory is mounted read-only.
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: search-engine-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-searchengine}
@@ -19,5 +18,31 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: postgres
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-searchengine}
+      DB_USERNAME: ${POSTGRES_USER:-searchengine}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-change_me_local_password}
+    ports:
+      - "8080:8080"
+    volumes:
+      - index_data:/app/data/index
+      - ./data/models:/app/data/models:ro
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8081:80"
+
 volumes:
   postgres_data:
+  index_data:

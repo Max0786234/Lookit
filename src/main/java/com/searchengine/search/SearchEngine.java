@@ -75,8 +75,50 @@ public final class SearchEngine {
     /** Ranked ids only (no snippets) — what evaluation needs. */
     public TopDocs topDocs(String text, int k) {
         int window = Math.min(Math.max(k, 1), MAX_RESULT_WINDOW);
-        String key = text.trim().toLowerCase(Locale.ROOT) + '\u0000' + window;
-        return cache.get(index.generation(), key, () -> searcher.search(parse(text), window));
+        StaticPrior p = prior;
+        String key = text.trim().toLowerCase(Locale.ROOT) + '\u0000' + window + '\u0000' + p.version();
+        return cache.get(index.generation(), key, () -> rerank(searcher.search(parse(text),
+                p.weight() == 0 ? window : Math.max(window, PRIOR_RERANK_DEPTH)), p, window));
+    }
+
+    // ---- query-independent prior (PageRank)
+
+    /** Text hits re-scored with the prior: deep enough that the prior can promote, cheap enough to stay fast. */
+    static final int PRIOR_RERANK_DEPTH = 100;
+
+    /**
+     * @param normalized per-doc prior where 1.0 is "average" (e.g. PageRank × N); missing docs count as 1.0
+     * @param weight     multiplier of ln(prior) added to the text score; 0 disables
+     */
+    public record StaticPrior(Map<Integer, Double> normalized, double weight, long version) {
+        static final StaticPrior NONE = new StaticPrior(Map.of(), 0, 0);
+
+        double boost(int docId) {
+            return weight * Math.log(Math.max(normalized.getOrDefault(docId, 1.0), 1e-6));
+        }
+    }
+
+    private volatile StaticPrior prior = StaticPrior.NONE;
+
+    public void setStaticPrior(Map<Integer, Double> normalized, double weight) {
+        prior = new StaticPrior(Map.copyOf(normalized), weight, prior.version() + 1);
+    }
+
+    public StaticPrior staticPrior() {
+        return prior;
+    }
+
+    private static TopDocs rerank(TopDocs text, StaticPrior p, int k) {
+        if (p.weight() == 0) {
+            return text;
+        }
+        List<TopDocs.ScoredDoc> rescored = new ArrayList<>(text.hits().size());
+        for (TopDocs.ScoredDoc d : text.hits()) {
+            rescored.add(new TopDocs.ScoredDoc(d.docId(), d.score() + p.boost(d.docId())));
+        }
+        rescored.sort(java.util.Comparator.comparingDouble(TopDocs.ScoredDoc::score).reversed()
+                .thenComparingInt(TopDocs.ScoredDoc::docId));
+        return new TopDocs(text.totalHits(), text.totalHitsIsLowerBound(), rescored.subList(0, Math.min(k, rescored.size())));
     }
 
     public Results search(String text, int page, int size) {

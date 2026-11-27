@@ -1,19 +1,23 @@
 package com.searchengine.api;
 
-import com.searchengine.api.dto.CrawlRequestDto;
-import com.searchengine.api.dto.CrawlResponseDto;
+import com.searchengine.api.ApiExceptionHandler.NotFoundException;
 import com.searchengine.api.dto.CreateDocumentRequest;
 import com.searchengine.api.dto.DocumentDto;
 import com.searchengine.api.dto.SearchResponseDto;
 import com.searchengine.api.dto.SearchResultDto;
 import com.searchengine.api.dto.StatsDto;
-import com.searchengine.crawler.CrawlerService;
-import com.searchengine.crawler.WebFetcherService;
+import com.searchengine.api.dto.SuggestResponseDto;
 import com.searchengine.document.Document;
-import com.searchengine.query.SearchResult;
+import com.searchengine.search.SearchEngine;
 import com.searchengine.service.SearchEngineService;
+import com.searchengine.service.SearchMetrics;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,89 +28,98 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api")
-@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5173"})
 public class SearchController {
 
     private final SearchEngineService searchEngineService;
-    private final CrawlerService crawlerService;
-    private final WebFetcherService webFetcherService;
+    private final SearchMetrics metrics;
 
-    public SearchController(SearchEngineService searchEngineService, CrawlerService crawlerService, WebFetcherService webFetcherService) {
+    public SearchController(SearchEngineService searchEngineService, SearchMetrics metrics) {
         this.searchEngineService = searchEngineService;
-        this.crawlerService = crawlerService;
-        this.webFetcherService = webFetcherService;
+        this.metrics = metrics;
     }
 
     @GetMapping("/search")
-    public SearchResponseDto search(@RequestParam String q) {
-        List<SearchResult> results = searchEngineService.search(q);
+    public SearchResponseDto search(@RequestParam @NotBlank @Size(max = 512) String q,
+                                    @RequestParam(defaultValue = "1") @Min(1) @Max(100) int page,
+                                    @RequestParam(defaultValue = "10") @Min(1) @Max(50) int size,
+                                    @RequestParam(defaultValue = "keyword") String mode) {
+        SearchEngine.Mode m = parseMode(mode);
+        SearchEngine.Results result = metrics.timeSearch(m, () -> searchEngineService.search(q, page, size, m));
+        List<SearchResultDto> items = result.hits().stream()
+                .map(hit -> new SearchResultDto(
+                        hit.document().id(),
+                        hit.document().title(),
+                        hit.document().url(),
+                        hit.snippet().text(),
+                        hit.snippet().highlights().stream().map(h -> new int[]{h.start(), h.end()}).toList(),
+                        hit.score()))
+                .toList();
+        return new SearchResponseDto(q, m.name().toLowerCase(java.util.Locale.ROOT), result.total(),
+                result.totalIsLowerBound(), page, size, result.tookMs(), result.didYouMean(), items);
+    }
 
-        List<SearchResultDto> items = results.stream()
-                .map(result -> new SearchResultDto(
-                        result.document().title(),
-                        result.document().url(),
-                        result.document().content(),
-                        result.score()
-                ))
-                .collect(Collectors.toList());
+    private static SearchEngine.Mode parseMode(String mode) {
+        try {
+            return SearchEngine.Mode.valueOf(mode.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("mode must be keyword, semantic or hybrid");
+        }
+    }
 
-        return new SearchResponseDto(q, items);
+    /** Autocomplete: completions of the last word of {@code q}. */
+    @GetMapping("/suggest")
+    public SuggestResponseDto suggest(@RequestParam @Size(max = 200) String q,
+                                      @RequestParam(defaultValue = "8") @Min(1) @Max(20) int limit) {
+        return new SuggestResponseDto(q, searchEngineService.suggest(q, limit));
     }
 
     @GetMapping("/documents")
-    public List<DocumentDto> getAllDocuments() {
-        return searchEngineService.getAllDocuments().stream()
-                .map(document -> new DocumentDto(document.id(), document.title(), document.url(), document.content()))
-                .collect(Collectors.toList());
+    public List<DocumentDto> listDocuments(@RequestParam(defaultValue = "1") @Min(1) int page,
+                                           @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return searchEngineService.listDocuments(page, size).stream().map(SearchController::toDto).toList();
+    }
+
+    /** Example searches built from the titles of indexed documents, for the home screen. */
+    @GetMapping("/examples")
+    public List<String> examples(@RequestParam(defaultValue = "6") @Min(1) @Max(20) int count) {
+        return searchEngineService.exampleQueries(count);
     }
 
     @GetMapping("/documents/{id}")
     public DocumentDto getDocument(@PathVariable int id) {
-        Document document = searchEngineService.getDocument(id)
-                .orElseThrow(() -> new IllegalArgumentException("Document not found: " + id));
-
-        return new DocumentDto(document.id(), document.title(), document.url(), document.content());
+        return searchEngineService.getDocument(id)
+                .map(SearchController::toDto)
+                .orElseThrow(() -> new NotFoundException("Document not found: " + id));
     }
 
     @PostMapping("/documents")
     @ResponseStatus(HttpStatus.CREATED)
-    public DocumentDto createDocument(@RequestBody CreateDocumentRequest request) {
-        Document document = searchEngineService.addDocument(request.title(), request.url(), request.content());
-        return new DocumentDto(document.id(), document.title(), document.url(), document.content());
+    public DocumentDto createDocument(@Valid @RequestBody CreateDocumentRequest request) {
+        return toDto(searchEngineService.addDocument(request.title(), request.url(), request.content()));
+    }
+
+    @DeleteMapping("/documents/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteDocument(@PathVariable int id) {
+        if (!searchEngineService.deleteDocument(id)) {
+            throw new NotFoundException("Document not found: " + id);
+        }
     }
 
     @GetMapping("/stats")
     public StatsDto getStats() {
-        return new StatsDto(
-                searchEngineService.documentCount(),
-                searchEngineService.totalTermOccurrences(),
-                searchEngineService.vocabularySize()
-        );
+        List<StatsDto.Source> sources = searchEngineService.sources().entrySet().stream()
+                .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed())
+                .map(e -> new StatsDto.Source(e.getKey(), e.getValue()))
+                .toList();
+        return new StatsDto(searchEngineService.documentCount(), searchEngineService.totalTermOccurrences(),
+                searchEngineService.vocabularySize(), sources, searchEngineService.semanticEnabled());
     }
 
-    @PostMapping("/crawl")
-    @ResponseStatus(HttpStatus.OK)
-    public CrawlResponseDto crawl(@RequestBody CrawlRequestDto request) {
-        String seedUrl = request.seedUrl();
-        int maxPages = Math.max(1, Math.min(request.maxPages(), 100)); // Cap at 100 pages
-        int maxDepth = Math.max(0, Math.min(request.maxDepth(), 3)); // Cap at depth 3
-
-        // Crawl and store documents in database
-        WebFetcherService.CrawlStats stats = webFetcherService.crawl(seedUrl, maxDepth, maxPages, title -> {
-            System.out.println("Crawled: " + title);
-        });
-        
-        // Reload search index with newly added documents from database
-        searchEngineService.reindexAllDocuments();
-
-        return new CrawlResponseDto(
-                stats.seedUrl(),
-                stats.pagesAdded(),
-                java.util.List.of("Crawled " + stats.domain() + ", found " + stats.pagesAdded() + " documents, attempted " + stats.attemptedPages())
-        );
+    private static DocumentDto toDto(Document document) {
+        return new DocumentDto(document.id(), document.title(), document.url(), document.content());
     }
 }

@@ -1,6 +1,9 @@
 package com.searchengine.api.dto;
 
-import java.util.List;
+import java.time.Instant;
 
-public record CrawlResponseDto(String seedUrl, int crawledPages, List<String> urls) {
+/** Status of an asynchronous crawl job. */
+public record CrawlResponseDto(String jobId, String seedUrl, String status, int fetched, int stored, int duplicates,
+                               int robotsBlocked, int errors, int queued, Instant startedAt, Instant finishedAt,
+                               String error) {
 }

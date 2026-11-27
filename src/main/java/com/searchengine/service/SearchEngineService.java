@@ -1,150 +1,343 @@
 package com.searchengine.service;
 
+import com.searchengine.analysis.Analyzer;
 import com.searchengine.document.Document;
 import com.searchengine.document.DocumentEntity;
 import com.searchengine.document.DocumentRepository;
-import com.searchengine.index.InvertedIndex;
+import com.searchengine.index.Fields;
+import com.searchengine.index.MemoryIndex;
+import com.searchengine.index.MutableIndex;
+import com.searchengine.index.SegmentedIndex;
 import com.searchengine.loader.DocumentLoaderService;
-import com.searchengine.processor.TextProcessor;
-import com.searchengine.query.SearchResult;
-import com.searchengine.query.SearchService;
-import com.searchengine.ranking.Bm25Ranker;
-import org.springframework.cache.annotation.Cacheable;
+import com.searchengine.search.Bm25fSearcher;
+import com.searchengine.search.SearchEngine;
+import com.searchengine.vector.HnswIndex;
+import com.searchengine.vector.OnnxEncoder;
+import com.searchengine.vector.VectorStore;
+import jakarta.annotation.PreDestroy;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 
+/**
+ * Spring facade over {@link SearchEngine}. The database is the source of truth for documents; the
+ * engine index is either in-memory (rebuilt from the DB at startup) or a persistent
+ * {@link SegmentedIndex} in {@code lookit.index.dir}, reused when it matches the DB and rebuilt
+ * when it does not (e.g. after a crash before the last commit).
+ */
 @Service
 public class SearchEngineService {
-    private final SearchService searchService;
-    private final InvertedIndex index;
+    private static final Logger log = LoggerFactory.getLogger(SearchEngineService.class);
+    static final String SAMPLE_DIRECTORY = "data/documents";
+
     private final DocumentRepository documentRepository;
-    private final DocumentLoaderService documentLoaderService;
+    private final SearchEngine engine;
+    private final AtomicBoolean dirty = new AtomicBoolean();
 
-    public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService) {
-        this.documentRepository = documentRepository;
-        this.documentLoaderService = documentLoaderService;
-        TextProcessor textProcessor = new TextProcessor();
-        this.index = new InvertedIndex(textProcessor);
+    private final Path vectorFile;
+    private final Set<Integer> vectorized = ConcurrentHashMap.newKeySet();
+    /** Embeddings computed elsewhere (seed corpus), used instead of re-encoding. */
+    private final Map<Integer, float[]> precomputedVectors = new ConcurrentHashMap<>();
 
-        seedSampleDocuments();
-        this.searchService = new SearchService(index, textProcessor, new Bm25Ranker());
+    /** Keyword-only service (no embedding model). */
+    public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService,
+                               String indexDir) {
+        this(documentRepository, documentLoaderService, indexDir, "");
     }
 
-    private void seedSampleDocuments() {
-        List<DocumentEntity> savedDocuments = documentRepository.findAll();
-        if (!savedDocuments.isEmpty()) {
-            savedDocuments.forEach(entity -> {
-                Integer id = entity.getId();
-                if (id == null) {
-                    id = index.documentCount() + 1;
-                    entity.setId(id);
-                }
-                index.addDocument(new Document(
-                        id,
-                        entity.getTitle(),
-                        entity.getUrl(),
-                        entity.getContent()
-                ));
-            });
-            return;
-        }
-
-        // Try loading from data/documents directory
-        int loaded = documentLoaderService.loadDocumentsFromDirectory("data/documents");
-        if (loaded > 0) {
-            System.out.println("Loaded " + loaded + " documents from data/documents/");
-            // Reload from database after loading
-            List<DocumentEntity> newDocuments = documentRepository.findAll();
-            newDocuments.forEach(entity -> index.addDocument(new Document(
-                    entity.getId(),
-                    entity.getTitle(),
-                    entity.getUrl(),
-                    entity.getContent()
-            )));
-            return;
-        }
-
-        // Fallback to hardcoded samples if no files found
-        System.out.println("No documents found. Seeding with default samples.");
-        addDocument("Java Search Engine", "local://java-search-engine",
-                "Java is a powerful language. This project builds a search engine using Java.");
-        addDocument("Spring Boot Backend", "local://spring-boot-backend",
-                "Spring Boot helps Java developers build backend APIs quickly.");
-        addDocument("Information Retrieval Basics", "local://information-retrieval",
-                "Search engines use an inverted index and ranking algorithms to retrieve documents.");
-    }
-
-    @Cacheable(value = "searchResults", key = "#query.trim().toLowerCase()")
-    public List<SearchResult> search(String query) {
-        return searchService.search(query);
-    }
-
-    public Optional<Document> getDocument(int id) {
-        return index.getDocument(id);
-    }
-
-    public List<Document> getAllDocuments() {
-        return index.getAllDocuments();
-    }
-
-    public int documentCount() {
-        return index.documentCount();
-    }
-
-    public int vocabularySize() {
-        return index.vocabularySize();
-    }
-
-    public int totalTermOccurrences() {
-        return index.getAllDocuments().stream()
-                .mapToInt(document -> index.documentLength(document.id()))
-                .sum();
-    }
-
-    public Document addDocument(String title, String url, String content) {
-        DocumentEntity entity = new DocumentEntity(title, url, content);
-        DocumentEntity saved = documentRepository.save(entity);
-        if (saved == null) {
-            saved = entity;
-        }
-
-        if (saved.getId() == null) {
-            saved.setId(index.documentCount() + 1);
-        }
-
-        Document document = new Document(saved.getId(), title, url, content);
-        index.addDocument(document);
-        return document;
+    public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService,
+                               String indexDir, String modelDir) {
+        this(documentRepository, documentLoaderService, indexDir, modelDir, "");
     }
 
     /**
-     * Rebuild the in-memory index from all documents in the database.
-     * Call this after adding documents via crawler or batch operations.
+     * @param seedDir BEIR corpus loaded into an install once so there is something to search
+     *                (blank = only the bundled samples)
      */
-    public void reindexAllDocuments() {
-        // Load all documents from database and add to the existing index
-        // This is idempotent - re-adding the same documents just updates their entries
-        List<DocumentEntity> allDocs = documentRepository.findAll();
-        int beforeCount = index.documentCount();
+    @Autowired
+    public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService,
+                               @Value("${lookit.index.dir:}") String indexDir,
+                               @Value("${lookit.vector.model-dir:}") String modelDir,
+                               @Value("${lookit.seed.beir-dir:}") String seedDir) {
+        this.documentRepository = documentRepository;
+        this.vectorFile = indexDir == null || indexDir.isBlank() ? null : Path.of(indexDir).resolve("vectors.vec");
+        if (documentRepository.count() == 0) {
+            int loaded = documentLoaderService.loadDocumentsFromDirectory(SAMPLE_DIRECTORY);
+            log.info("Empty corpus: loaded {} sample documents from {}", loaded, SAMPLE_DIRECTORY);
+        }
+        precomputedVectors.putAll(CorpusSeeder.seedIfNeeded(documentRepository, seedDir));
+        MutableIndex index = openIndex(indexDir);
+        this.engine = new SearchEngine(index, new Bm25fSearcher(index, SearchEngine.BM25F_K1,
+                SearchEngine.defaultBm25fParams()));
+        enableDense(modelDir);
+        if (index.numDocs() != documentRepository.count()) {
+            int added = reindexAllDocuments();
+            log.info("Indexed {} documents from the database", added);
+            commit();
+        }
+        backfillVectors();
+        log.info("Index ready: {} documents, {} body terms", documentCount(), vocabularySize());
+    }
 
-        for (DocumentEntity entity : allDocs) {
-            Integer id = entity.getId();
-            if (id == null) {
-                id = index.documentCount() + 1;
-                entity.setId(id);
+    private MutableIndex openIndex(String indexDir) {
+        if (indexDir == null || indexDir.isBlank()) {
+            return new MemoryIndex(Analyzer.english());
+        }
+        try {
+            Path dir = Path.of(indexDir);
+            SegmentedIndex index = SegmentedIndex.open(dir, Analyzer.english());
+            if (index.numDocs() == documentRepository.count()) {
+                return index;
             }
-            if (index.getDocument(id).isEmpty()) {
-                // Only add if not already in index
-                Document document = new Document(id, entity.getTitle(), entity.getUrl(), entity.getContent());
-                index.addDocument(document);
+            log.warn("Index at {} has {} docs but the database has {}; rebuilding",
+                    dir, index.numDocs(), documentRepository.count());
+            wipe(dir);
+            return SegmentedIndex.open(dir, Analyzer.english());
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static void wipe(Path dir) throws IOException {
+        try (Stream<Path> files = Files.walk(dir)) {
+            for (Path p : files.sorted(Comparator.reverseOrder()).toList()) {
+                if (!p.equals(dir)) {
+                    Files.deleteIfExists(p);
+                }
             }
         }
-        
-        int afterCount = index.documentCount();
-        if (afterCount > beforeCount) {
-            System.out.println("Reindexed: added " + (afterCount - beforeCount) + " new documents, total now: " + afterCount);
+    }
+
+    public SearchEngine engine() {
+        return engine;
+    }
+
+    public SearchEngine.Results search(String query, int page, int size) {
+        return engine.search(query, page, size);
+    }
+
+    public SearchEngine.Results search(String query, int page, int size, SearchEngine.Mode mode) {
+        return engine.search(query, page, size, mode);
+    }
+
+    public List<String> suggest(String prefix, int limit) {
+        return engine.complete(prefix, limit);
+    }
+
+    // ---- dense retrieval
+
+    private void enableDense(String modelDir) {
+        if (modelDir == null || modelDir.isBlank() || !Files.exists(Path.of(modelDir, "model.onnx"))) {
+            log.info("Semantic search disabled (no model at '{}'; see scripts/fetch-model.sh)", modelDir);
+            return;
         }
+        try {
+            OnnxEncoder encoder = new OnnxEncoder(Path.of(modelDir));
+            HnswIndex vectors = new HnswIndex();
+            engine.enableDense(encoder, vectors);
+            if (vectorFile != null) {
+                VectorStore.read(vectorFile, encoder.dimension()).forEach((id, v) -> {
+                    if (engine.index().contains(id)) {
+                        vectors.add(id, v);
+                        vectorized.add(id);
+                    }
+                });
+            }
+            log.info("Semantic search enabled: {}-d embeddings, {} stored vectors", encoder.dimension(), vectorized.size());
+        } catch (IOException e) {
+            log.warn("Could not load embedding model from {}: {}", modelDir, e.toString());
+        }
+    }
+
+    /** Embeds every indexed document that has no stored vector yet. */
+    private void backfillVectors() {
+        if (!engine.denseEnabled()) {
+            return;
+        }
+        int added = 0;
+        for (int id : engine.index().docIds()) {
+            if (!vectorized.contains(id)) {
+                Optional<Document> doc = engine.index().document(id);
+                if (doc.isPresent()) {
+                    indexDocument(doc.get());
+                    added++;
+                }
+            }
+        }
+        if (added > 0) {
+            log.info("Embedded {} documents", added);
+        }
+    }
+
+    /** Adds to the engine, embedding and persisting the vector when semantic search is on. */
+    private void indexDocument(Document document) {
+        if (!engine.denseEnabled()) {
+            engine.add(document, null);
+            return;
+        }
+        float[] cached = precomputedVectors.remove(document.id());
+        float[] vector = cached != null ? cached : engine.embed(document);
+        engine.add(document, vector);
+        vectorized.add(document.id());
+        if (vectorFile != null) {
+            try {
+                VectorStore.append(vectorFile, vector.length, Map.of(document.id(), vector));
+            } catch (IOException e) {
+                log.warn("Could not persist vector for doc {}: {}", document.id(), e.toString());
+            }
+        }
+    }
+
+    public Optional<Document> getDocument(int id) {
+        return engine.index().document(id);
+    }
+
+    /** One page of documents in id order (the corpus can be large, so never return it whole). */
+    public List<Document> listDocuments(int page, int size) {
+        int[] ids = engine.index().docIds();
+        int from = Math.min((page - 1) * size, ids.length);
+        return Arrays.stream(ids, from, Math.min(from + size, ids.length))
+                .mapToObj(this::getDocument).flatMap(Optional::stream).toList();
+    }
+
+    private volatile long sourcesGeneration = -1;
+    private volatile Map<String, Long> sourcesCache = Map.of();
+
+    /** Document counts per origin (seed corpus, sample articles, crawled host), cached per index version. */
+    public Map<String, Long> sources() {
+        long gen = engine.index().generation();
+        if (gen != sourcesGeneration) {
+            Map<String, Long> counts = new java.util.HashMap<>();
+            for (int id : engine.index().docIds()) {
+                getDocument(id).ifPresent(d -> counts.merge(sourceName(d.url()), 1L, Long::sum));
+            }
+            sourcesCache = counts;
+            sourcesGeneration = gen;
+        }
+        return sourcesCache;
+    }
+
+    static String sourceName(String url) {
+        if (url == null) {
+            return "Other";
+        }
+        if (url.startsWith("beir://scifact/")) {
+            return "SciFact scientific abstracts";
+        }
+        if (url.startsWith("beir://")) {
+            return "BEIR " + url.substring(7, url.indexOf('/', 7) < 0 ? url.length() : url.indexOf('/', 7));
+        }
+        if (url.startsWith("local://")) {
+            return "Sample articles";
+        }
+        String host = com.searchengine.crawler.UrlNormalizer.host(url);
+        return host.isEmpty() ? "Other" : host;
+    }
+
+    /** Example searches: short titles of random indexed documents. */
+    public List<String> exampleQueries(int count) {
+        int[] ids = engine.index().docIds();
+        java.util.Random random = new java.util.Random();
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (int attempt = 0; attempt < count * 20 && out.size() < count && ids.length > 0; attempt++) {
+            getDocument(ids[random.nextInt(ids.length)]).map(Document::title).map(String::trim)
+                    .filter(t -> !t.isEmpty() && t.split("\\s+").length <= 8 && !t.endsWith("…"))
+                    .ifPresent(t -> out.add(t.replaceAll("[.:;,]+$", "")));
+        }
+        return List.copyOf(out);
+    }
+
+    public boolean semanticEnabled() {
+        return engine.denseEnabled();
+    }
+
+    public List<Document> getAllDocuments() {
+        return Arrays.stream(engine.index().docIds()).mapToObj(this::getDocument).flatMap(Optional::stream).toList();
+    }
+
+    public int documentCount() {
+        return engine.index().numDocs();
+    }
+
+    public int vocabularySize() {
+        return engine.index().vocabularySize(Fields.BODY);
+    }
+
+    public long totalTermOccurrences() {
+        return Fields.ALL.stream().mapToLong(f -> engine.index().totalFieldLength(f)).sum();
+    }
+
+    public Document addDocument(String title, String url, String content) {
+        DocumentEntity saved = documentRepository.save(new DocumentEntity(title, url, content));
+        Objects.requireNonNull(saved.getId(), "database did not assign an id");
+        Document document = toDocument(saved);
+        indexDocument(document);
+        dirty.set(true);
+        return document;
+    }
+
+    public boolean deleteDocument(int id) {
+        if (!documentRepository.existsById(id)) {
+            return false;
+        }
+        documentRepository.deleteById(id);
+        dirty.set(true);
+        return engine.delete(id);
+    }
+
+    /**
+     * Adds every stored document that is not yet in the index (e.g. after a crawl wrote to the DB).
+     *
+     * @return number of documents added
+     */
+    public int reindexAllDocuments() {
+        int added = 0;
+        for (DocumentEntity entity : documentRepository.findAll()) {
+            if (entity.getId() != null && !engine.index().contains(entity.getId())) {
+                indexDocument(toDocument(entity));
+                added++;
+            }
+        }
+        if (added > 0) {
+            dirty.set(true);
+        }
+        return added;
+    }
+
+    /** Persists the index if it is on disk and has changed. */
+    @Scheduled(fixedDelayString = "${lookit.index.commit-interval-ms:10000}")
+    public void commitIfDirty() {
+        if (dirty.getAndSet(false)) {
+            commit();
+        }
+    }
+
+    @PreDestroy
+    public void commit() {
+        if (engine.index() instanceof SegmentedIndex segmented) {
+            segmented.commit();
+        }
+    }
+
+    private static Document toDocument(DocumentEntity entity) {
+        return new Document(entity.getId(), entity.getTitle(), entity.getUrl(), entity.getContent());
     }
 }

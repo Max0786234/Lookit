@@ -5,19 +5,22 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
 @Entity
-@Table(name = "documents")
+@Table(name = "documents", indexes = @Index(name = "idx_documents_url", columnList = "url"))
 public class DocumentEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
 
+    @Column(length = 512)
     private String title;
+    @Column(length = 2048)
     private String url;
     
-    @Column(length = 65536)
+    @Column(length = 1_000_000)
     private String content;
 
     public DocumentEntity() {

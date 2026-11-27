@@ -44,7 +44,8 @@ public class DocumentLoaderService {
             for (Path file : documentFiles) {
                 try {
                     String title = removeExtension(file.getFileName().toString());
-                    String content = Files.readString(file);
+                    String raw = Files.readString(file);
+                    String content = file.getFileName().toString().endsWith(".md") ? stripMarkdown(raw) : raw;
                     String url = "local://file/" + title.toLowerCase(java.util.Locale.ROOT).replace(" ", "-");
 
                     DocumentEntity entity = new DocumentEntity(title, url, content);
@@ -59,6 +60,17 @@ public class DocumentLoaderService {
         }
 
         return loaded;
+    }
+
+    /** Plain text for indexing and snippets: drops heading marks, code fences, emphasis and link syntax. */
+    static String stripMarkdown(String md) {
+        return md.replaceAll("(?m)^```.*$", "")
+                .replaceAll("(?m)^[ \\t]{0,3}#{1,6}[ \\t]*", "")
+                .replaceAll("(?m)^[ \\t]*[-*+][ \\t]+", "")
+                .replaceAll("\\*\\*|__|`", "")
+                .replaceAll("\\[([^\\]]*)]\\([^)]*\\)", "$1")
+                .replaceAll("\\n{3,}", "\n\n")
+                .trim();
     }
 
     private boolean isDocumentFile(String filename) {

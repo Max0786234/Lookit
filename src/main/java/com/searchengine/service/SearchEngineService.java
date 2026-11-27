@@ -210,6 +210,65 @@ public class SearchEngineService {
         return engine.index().document(id);
     }
 
+    /** One page of documents in id order (the corpus can be large, so never return it whole). */
+    public List<Document> listDocuments(int page, int size) {
+        int[] ids = engine.index().docIds();
+        int from = Math.min((page - 1) * size, ids.length);
+        return Arrays.stream(ids, from, Math.min(from + size, ids.length))
+                .mapToObj(this::getDocument).flatMap(Optional::stream).toList();
+    }
+
+    private volatile long sourcesGeneration = -1;
+    private volatile Map<String, Long> sourcesCache = Map.of();
+
+    /** Document counts per origin (seed corpus, sample articles, crawled host), cached per index version. */
+    public Map<String, Long> sources() {
+        long gen = engine.index().generation();
+        if (gen != sourcesGeneration) {
+            Map<String, Long> counts = new java.util.HashMap<>();
+            for (int id : engine.index().docIds()) {
+                getDocument(id).ifPresent(d -> counts.merge(sourceName(d.url()), 1L, Long::sum));
+            }
+            sourcesCache = counts;
+            sourcesGeneration = gen;
+        }
+        return sourcesCache;
+    }
+
+    static String sourceName(String url) {
+        if (url == null) {
+            return "Other";
+        }
+        if (url.startsWith("beir://scifact/")) {
+            return "SciFact scientific abstracts";
+        }
+        if (url.startsWith("beir://")) {
+            return "BEIR " + url.substring(7, url.indexOf('/', 7) < 0 ? url.length() : url.indexOf('/', 7));
+        }
+        if (url.startsWith("local://")) {
+            return "Sample articles";
+        }
+        String host = com.searchengine.crawler.UrlNormalizer.host(url);
+        return host.isEmpty() ? "Other" : host;
+    }
+
+    /** Example searches: short titles of random indexed documents. */
+    public List<String> exampleQueries(int count) {
+        int[] ids = engine.index().docIds();
+        java.util.Random random = new java.util.Random();
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (int attempt = 0; attempt < count * 20 && out.size() < count && ids.length > 0; attempt++) {
+            getDocument(ids[random.nextInt(ids.length)]).map(Document::title).map(String::trim)
+                    .filter(t -> !t.isEmpty() && t.split("\\s+").length <= 8 && !t.endsWith("…"))
+                    .ifPresent(t -> out.add(t.replaceAll("[.:;,]+$", "")));
+        }
+        return List.copyOf(out);
+    }
+
+    public boolean semanticEnabled() {
+        return engine.denseEnabled();
+    }
+
     public List<Document> getAllDocuments() {
         return Arrays.stream(engine.index().docIds()).mapToObj(this::getDocument).flatMap(Optional::stream).toList();
     }

@@ -72,6 +72,20 @@ class SearchControllerTest {
     }
 
     @Test
+    void statsListSourcesAndExamplesComeFromTheCorpus() throws Exception {
+        when(searchEngineService.sources()).thenReturn(java.util.Map.of("SciFact scientific abstracts", 5183L, "Sample articles", 6L));
+        when(searchEngineService.semanticEnabled()).thenReturn(true);
+        when(searchEngineService.exampleQueries(6)).thenReturn(List.of("Vitamin D and bone density"));
+        mockMvc.perform(get("/api/stats"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sources[0].name").value("SciFact scientific abstracts"))
+                .andExpect(jsonPath("$.sources[0].documents").value(5183))
+                .andExpect(jsonPath("$.semanticEnabled").value(true));
+        mockMvc.perform(get("/api/examples"))
+                .andExpect(jsonPath("$[0]").value("Vitamin D and bone density"));
+    }
+
+    @Test
     void documentEndpointReturnsDocumentDto() throws Exception {
         when(searchEngineService.getDocument(1)).thenReturn(Optional.of(
                 new Document(1, "Java Search Engine", "local://java-search-engine",

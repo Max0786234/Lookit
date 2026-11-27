@@ -77,8 +77,15 @@ public class SearchController {
     }
 
     @GetMapping("/documents")
-    public List<DocumentDto> getAllDocuments() {
-        return searchEngineService.getAllDocuments().stream().map(SearchController::toDto).toList();
+    public List<DocumentDto> listDocuments(@RequestParam(defaultValue = "1") @Min(1) int page,
+                                           @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size) {
+        return searchEngineService.listDocuments(page, size).stream().map(SearchController::toDto).toList();
+    }
+
+    /** Example searches built from the titles of indexed documents, for the home screen. */
+    @GetMapping("/examples")
+    public List<String> examples(@RequestParam(defaultValue = "6") @Min(1) @Max(20) int count) {
+        return searchEngineService.exampleQueries(count);
     }
 
     @GetMapping("/documents/{id}")
@@ -104,10 +111,12 @@ public class SearchController {
 
     @GetMapping("/stats")
     public StatsDto getStats() {
-        return new StatsDto(
-                searchEngineService.documentCount(),
-                searchEngineService.totalTermOccurrences(),
-                searchEngineService.vocabularySize());
+        List<StatsDto.Source> sources = searchEngineService.sources().entrySet().stream()
+                .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed())
+                .map(e -> new StatsDto.Source(e.getKey(), e.getValue()))
+                .toList();
+        return new StatsDto(searchEngineService.documentCount(), searchEngineService.totalTermOccurrences(),
+                searchEngineService.vocabularySize(), sources, searchEngineService.semanticEnabled());
     }
 
     private static DocumentDto toDto(Document document) {

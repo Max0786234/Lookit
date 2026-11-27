@@ -6,7 +6,7 @@ import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * Browser origins allowed to call the API. Browsers send an Origin header on POST/DELETE even when
+ * Browser origins (patterns such as {@code https://*.hf.space} allowed) permitted to call the API. Browsers send an Origin header on POST/DELETE even when
  * the UI is served through the same nginx host, so the Docker UI origin must be listed too —
  * otherwise Spring rejects those requests with 403.
  */
@@ -22,7 +22,7 @@ public class CorsConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
-                .allowedOrigins(allowedOrigins)
+                .allowedOriginPatterns(allowedOrigins)
                 .allowedMethods("GET", "POST", "DELETE");
     }
 }

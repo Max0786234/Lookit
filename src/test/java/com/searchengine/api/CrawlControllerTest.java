@@ -62,6 +62,9 @@ class CrawlControllerTest {
         mockMvc.perform(post("/api/crawl").header("Origin", "http://localhost:8081")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isAccepted());
+        mockMvc.perform(post("/api/crawl").header("Origin", "http://127.0.0.1:8081")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isAccepted());
         mockMvc.perform(post("/api/crawl").header("Origin", "https://evil.example")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isForbidden());

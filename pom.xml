@@ -76,6 +76,13 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Runs the sentence-embedding model for dense retrieval (M6). -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>1.20.0</version>
+        </dependency>
+
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>

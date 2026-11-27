@@ -28,3 +28,5 @@ frontend/.vite/
 data/beir/
 # Local index data
 data/index/
+# Downloaded embedding models (see scripts/fetch-model.sh)
+data/models/

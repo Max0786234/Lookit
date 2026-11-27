@@ -28,7 +28,8 @@ import java.util.function.Function;
 /**
  * Command-line evaluation: {@code EvalRunner <dataset-dir> [output.md] [system,system,...]}.
  *
- * <p>Run with {@code mvn -q compile exec:java -Dexec.args="data/beir/scifact"}.
+ * <p>Run with {@code mvn -q compile exec:java -Dexec.args="data/beir/scifact"}; pass {@code -} as the
+ * output to only log the table.
  */
 public final class EvalRunner {
     private static final Logger log = LoggerFactory.getLogger(EvalRunner.class);
@@ -54,7 +55,7 @@ public final class EvalRunner {
             throw new IllegalArgumentException("usage: EvalRunner <dataset-dir> [output.md] [systems]");
         }
         Path dir = Path.of(args[0]);
-        Path out = args.length > 1 ? Path.of(args[1]) : null;
+        Path out = args.length > 1 && !args[1].equals("-") ? Path.of(args[1]) : null; // "-" = log only
         List<String> systems = args.length > 2 ? List.of(args[2].split(",")) : new ArrayList<>(SYSTEMS.keySet());
 
         BeirDataset dataset = BeirDataset.load(dir);

@@ -1,14 +1,11 @@
 package com.searchengine.api;
 
 import com.searchengine.api.ApiExceptionHandler.NotFoundException;
-import com.searchengine.api.dto.CrawlRequestDto;
-import com.searchengine.api.dto.CrawlResponseDto;
 import com.searchengine.api.dto.CreateDocumentRequest;
 import com.searchengine.api.dto.DocumentDto;
 import com.searchengine.api.dto.SearchResponseDto;
 import com.searchengine.api.dto.SearchResultDto;
 import com.searchengine.api.dto.StatsDto;
-import com.searchengine.crawler.WebFetcherService;
 import com.searchengine.document.Document;
 import com.searchengine.search.SearchEngine;
 import com.searchengine.service.SearchEngineService;
@@ -37,11 +34,9 @@ import java.util.List;
 public class SearchController {
 
     private final SearchEngineService searchEngineService;
-    private final WebFetcherService webFetcherService;
 
-    public SearchController(SearchEngineService searchEngineService, WebFetcherService webFetcherService) {
+    public SearchController(SearchEngineService searchEngineService) {
         this.searchEngineService = searchEngineService;
-        this.webFetcherService = webFetcherService;
     }
 
     @GetMapping("/search")
@@ -93,18 +88,6 @@ public class SearchController {
                 searchEngineService.documentCount(),
                 searchEngineService.totalTermOccurrences(),
                 searchEngineService.vocabularySize());
-    }
-
-    @PostMapping("/crawl")
-    public CrawlResponseDto crawl(@Valid @RequestBody CrawlRequestDto request) {
-        WebFetcherService.CrawlStats stats =
-                webFetcherService.crawl(request.seedUrl(), request.maxDepth(), request.maxPages());
-        searchEngineService.reindexAllDocuments();
-        return new CrawlResponseDto(
-                stats.seedUrl(),
-                stats.pagesAdded(),
-                List.of("Crawled " + stats.domain() + ", found " + stats.pagesAdded()
-                        + " documents, attempted " + stats.attemptedPages()));
     }
 
     private static DocumentDto toDto(Document document) {

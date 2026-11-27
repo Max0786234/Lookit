@@ -1,7 +1,5 @@
 package com.searchengine.api;
 
-import com.searchengine.crawler.CrawlerService;
-import com.searchengine.crawler.WebFetcherService;
 import com.searchengine.document.Document;
 import com.searchengine.search.SearchEngine;
 import com.searchengine.search.SnippetGenerator;
@@ -17,7 +15,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -30,12 +27,6 @@ class SearchControllerTest {
 
     @MockBean
     private SearchEngineService searchEngineService;
-
-    @MockBean
-    private CrawlerService crawlerService;
-
-    @MockBean
-    private WebFetcherService webFetcherService;
 
     @Autowired
     private MockMvc mockMvc;
@@ -109,14 +100,6 @@ class SearchControllerTest {
         mockMvc.perform(post("/api/documents")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"\",\"url\":\"local://x\",\"content\":\"text\"}"))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void outOfRangeCrawlRequestReturns400() throws Exception {
-        mockMvc.perform(post("/api/crawl")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"seedUrl\":\"https://example.com\",\"maxPages\":5000,\"maxDepth\":1}"))
                 .andExpect(status().isBadRequest());
     }
 }

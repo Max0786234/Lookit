@@ -41,7 +41,7 @@ class UrlNormalizerTest {
         try (GZIPOutputStream gz = new GZIPOutputStream(bos)) {
             gz.write(plain);
         }
-        assertArrayEquals(plain, WebFetcherService.decode(bos.toByteArray(), "gzip"));
-        assertArrayEquals(plain, WebFetcherService.decode(plain, ""));
+        assertArrayEquals(plain, HttpFetcher.decode(bos.toByteArray(), "gzip"));
+        assertArrayEquals(plain, HttpFetcher.decode(plain, ""));
     }
 }

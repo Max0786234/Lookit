@@ -6,7 +6,6 @@ import com.searchengine.api.dto.CrawlResponseDto;
 import com.searchengine.service.CrawlJobService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,7 +20,6 @@ import java.util.List;
 /** Asynchronous crawl jobs: start one, poll its status, list or cancel. */
 @RestController
 @RequestMapping("/api/crawl")
-@CrossOrigin(origins = {"http://localhost:5173", "http://127.0.0.1:5173"})
 public class CrawlController {
     private final CrawlJobService jobs;
 

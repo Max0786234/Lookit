@@ -22,6 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(CrawlController.class)
+@org.springframework.context.annotation.Import(CorsConfig.class)
 class CrawlControllerTest {
 
     @MockBean
@@ -51,6 +52,19 @@ class CrawlControllerTest {
         mockMvc.perform(get("/api/crawl/" + job.id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.seedUrl").value("https://example.com/"));
+    }
+
+    @Test
+    void postFromTheDockerUiOriginIsAllowedAndUnknownOriginsAreRejected() throws Exception {
+        CrawlJobService.Job job = job("https://example.com/");
+        when(jobs.start(anyString(), anyInt(), anyInt(), anyBoolean())).thenReturn(job);
+        String body = "{\"seedUrl\":\"https://example.com\",\"maxPages\":1,\"maxDepth\":0}";
+        mockMvc.perform(post("/api/crawl").header("Origin", "http://localhost:8081")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isAccepted());
+        mockMvc.perform(post("/api/crawl").header("Origin", "https://evil.example")
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden());
     }
 
     @Test

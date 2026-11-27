@@ -1,5 +1,7 @@
 # Lookit
 
+**Live demo:** https://lookit.ashymeadow-cdaa71fc.uaenorth.azurecontainerapps.io (first load after idle takes ~30–60 s; see [docs/deployment.md](docs/deployment.md))
+
 A search engine written from scratch in Java 21: crawler → analyzer → on-disk inverted index →
 query parser → BM25F + WAND → dense vectors + HNSW → hybrid fusion → REST API → React UI.
 

@@ -4,6 +4,7 @@ import com.searchengine.document.Document;
 import com.searchengine.search.SearchEngine;
 import com.searchengine.search.SnippetGenerator;
 import com.searchengine.service.SearchEngineService;
+import com.searchengine.service.SearchMetrics;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -28,8 +29,17 @@ class SearchControllerTest {
     @MockBean
     private SearchEngineService searchEngineService;
 
+    @MockBean
+    private SearchMetrics metrics;
+
     @Autowired
     private MockMvc mockMvc;
+
+    @org.junit.jupiter.api.BeforeEach
+    void passThroughMetrics() {
+        when(metrics.timeSearch(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(inv -> ((java.util.function.Supplier<?>) inv.getArgument(1)).get());
+    }
 
     @Test
     void searchEndpointReturnsResults() throws Exception {

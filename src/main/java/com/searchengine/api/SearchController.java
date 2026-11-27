@@ -10,6 +10,7 @@ import com.searchengine.api.dto.SuggestResponseDto;
 import com.searchengine.document.Document;
 import com.searchengine.search.SearchEngine;
 import com.searchengine.service.SearchEngineService;
+import com.searchengine.service.SearchMetrics;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -35,9 +36,11 @@ import java.util.List;
 public class SearchController {
 
     private final SearchEngineService searchEngineService;
+    private final SearchMetrics metrics;
 
-    public SearchController(SearchEngineService searchEngineService) {
+    public SearchController(SearchEngineService searchEngineService, SearchMetrics metrics) {
         this.searchEngineService = searchEngineService;
+        this.metrics = metrics;
     }
 
     @GetMapping("/search")
@@ -46,7 +49,7 @@ public class SearchController {
                                     @RequestParam(defaultValue = "10") @Min(1) @Max(50) int size,
                                     @RequestParam(defaultValue = "keyword") String mode) {
         SearchEngine.Mode m = parseMode(mode);
-        SearchEngine.Results result = searchEngineService.search(q, page, size, m);
+        SearchEngine.Results result = metrics.timeSearch(m, () -> searchEngineService.search(q, page, size, m));
         List<SearchResultDto> items = result.hits().stream()
                 .map(hit -> new SearchResultDto(
                         hit.document().id(),

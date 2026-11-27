@@ -42,10 +42,10 @@ backed by a number.
 - [x] Latency / throughput / index-size benchmarks
 
 ## M5 — Crawler
-- [ ] Async crawl jobs + status endpoint
-- [ ] robots.txt + per-host politeness
-- [ ] SimHash near-duplicate detection
-- [ ] Link graph + PageRank as a ranking signal (evaluated)
+- [x] Async crawl jobs + status endpoint
+- [x] robots.txt + per-host politeness
+- [x] SimHash near-duplicate detection
+- [x] Link graph + PageRank as a ranking signal (tested; no public judged link graph — see ADR-012)
 
 ## M6 — Semantic search + query assistance
 - [ ] Dense embeddings (pluggable encoder)

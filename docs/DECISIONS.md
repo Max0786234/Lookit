@@ -70,3 +70,23 @@ Short records of *why* things are the way they are. Format: context → decision
   decrease with length. Bounds only widen on delete, so they stay valid without rewriting.
 - Consequence: 22× fewer documents scored on FiQA with exactly the exhaustive top-k; reported hit
   totals become lower bounds (exposed as `totalIsLowerBound`).
+
+## ADR-011 — Crawler: per-host frontier, RFC 9309, SimHash
+- Context: the prototype crawled one site synchronously inside the HTTP request, with a fixed sleep.
+- Decision: a frontier with one queue per host, served by earliest allowed time
+  (max(min delay, Crawl-delay) capped at 30 s); robots.txt per RFC 9309 (unreachable 5xx = disallow
+  all); robots meta and rel=nofollow honoured; 64-bit SimHash over 3-shingles with a 4-band index
+  (exact recall up to Hamming distance 3) to skip near-duplicates. Jobs run on virtual threads and
+  are polled via `/api/crawl/{id}`. The crawler takes a `Fetcher` so it is tested against a fake web
+  with a fake clock.
+- Consequence: polite by construction and deterministic tests; single-threaded per job (politeness,
+  not CPU, bounds crawl speed). SimHash is unreliable for very short pages.
+
+## ADR-012 — PageRank as an additive log-prior on the top 100, weight 0.3
+- Context: there is no public relevance-judged collection with a link graph that fits this project
+  (BEIR corpora have no links), so the PageRank weight cannot be tuned like BM25F.
+- Decision: score' = text + w·ln(PR·N) on the top 100 text hits (PR·N = 1 for an average page);
+  w = 0.3 means a page with 10× average PageRank gains ≈ 0.69, well below a typical single-term
+  BM25F contribution (2–6), so authority breaks near-ties but does not override text relevance.
+- Consequence: behaviour verified by tests (hub outranks an equal-text leaf; a strong text match is
+  not displaced) rather than by a metric; `lookit.ranking.pagerank-weight` makes it adjustable.

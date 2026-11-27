@@ -17,12 +17,16 @@ Retrieval quality on [BEIR](https://github.com/beir-cellar/beir) benchmarks (nDC
 | BM25, per-field sum | 0.668 | 0.249 |
 | Lucene 9.12 BM25 (reference) | 0.683 | 0.254 |
 | **BM25F** (tuned on train split) | **0.691** | 0.248 |
-| Dense: all-MiniLM-L6-v2 + HNSW | 0.645 | see [evaluation](docs/evaluation.md) |
-| **Hybrid: BM25F + dense, RRF** | **0.721** | see [evaluation](docs/evaluation.md) |
+| Dense: all-MiniLM-L6-v2 + HNSW | 0.645 | **0.365** |
+| **Hybrid: BM25F + dense, RRF** | **0.721** | 0.361 |
+
+The best retriever depends on the corpus: lexical matching wins on SciFact's exact terminology,
+dense retrieval wins on FiQA's informal questions (+0.12 over BM25F), and parameter-free fusion
+helps only when both are competitive.
 
 Performance on FiQA (57k docs, single thread, k = 10): WAND scores **22× fewer documents** than
 exhaustive evaluation with an identical top 10; p50 latency 2.3 ms on memory-mapped segments;
-859 QPS on 4 threads. Details: [docs/evaluation.md](docs/evaluation.md) · [docs/performance.md](docs/performance.md).
+859 QPS on 4 threads. HNSW finds 99 % of the exact top 10 at 39× the speed of brute force on FiQA. Details: [docs/evaluation.md](docs/evaluation.md) · [docs/performance.md](docs/performance.md).
 
 ## Features
 

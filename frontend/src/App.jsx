@@ -20,6 +20,9 @@ function Highlighted({ text, ranges }) {
 function App() {
   const [mode, setMode] = useState('search') // 'search' or 'crawl'
   const [query, setQuery] = useState('java search')
+  const [searchMode, setSearchMode] = useState('keyword')
+  const [suggestions, setSuggestions] = useState([])
+  const [didYouMean, setDidYouMean] = useState(null)
   const [results, setResults] = useState([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
@@ -54,14 +57,15 @@ function App() {
     }
   }, [mode])
 
-  const runSearch = async (targetPage) => {
+  const runSearch = async (targetPage, text = query) => {
     setLoading(true)
 
     try {
-      const params = new URLSearchParams({ q: query, page: targetPage, size: PAGE_SIZE })
+      const params = new URLSearchParams({ q: text, page: targetPage, size: PAGE_SIZE, mode: searchMode })
       const response = await fetch(`${API}/search?${params}`)
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+        const problem = await response.json().catch(() => ({}))
+        throw new Error(problem.detail ?? `HTTP ${response.status}`)
       }
 
       const data = await response.json()
@@ -70,10 +74,11 @@ function App() {
       setTotal(data.total)
       setTotalIsLowerBound(data.totalIsLowerBound)
       setTookMs(data.tookMs)
+      setDidYouMean(data.didYouMean)
     } catch (error) {
       console.error('Search failed', error)
       setResults([])
-      window.alert(`Search failed. Make sure the backend is running on ${API}`)
+      window.alert(`Search failed: ${error.message}. Is the backend running on ${API}?`)
     } finally {
       setLoading(false)
     }
@@ -83,6 +88,25 @@ function App() {
     event.preventDefault()
     runSearch(1)
   }
+
+  const acceptCorrection = () => {
+    setQuery(didYouMean)
+    runSearch(1, didYouMean)
+  }
+
+  // Autocomplete: ask the backend for completions of the last word, debounced.
+  useEffect(() => {
+    if (!query.trim() || query.endsWith(' ')) return undefined
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/suggest?${new URLSearchParams({ q: query, limit: 8 })}`)
+        if (res.ok) setSuggestions((await res.json()).suggestions)
+      } catch {
+        // suggestions are best-effort
+      }
+    }, 150)
+    return () => clearTimeout(timer)
+  }, [query])
 
   // With WAND pruning the total is a lower bound: allow "Next" while pages keep coming back full.
   const pageCount = Math.max(Math.ceil(total / PAGE_SIZE), totalIsLowerBound && results.length === PAGE_SIZE ? page + 1 : 0)
@@ -155,17 +179,33 @@ function App() {
         <>
           <form className="search-bar" onSubmit={handleSearch}>
             <input
-              type="text"
+              type="search"
               value={query}
+              list="query-suggestions"
+              autoComplete="off"
+              aria-label="Search query"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search documents..."
+              placeholder='Search… try "phrases", +must -not, title:java, retriev*'
             />
+            <datalist id="query-suggestions">
+              {suggestions.map((s) => <option key={s} value={s} />)}
+            </datalist>
+            <select value={searchMode} onChange={(e) => setSearchMode(e.target.value)} aria-label="Search mode">
+              <option value="keyword">Keyword (BM25F)</option>
+              <option value="semantic">Semantic</option>
+              <option value="hybrid">Hybrid</option>
+            </select>
             <button type="submit" disabled={loading}>
               {loading ? 'Searching...' : 'Search'}
             </button>
           </form>
 
           <section className="results-panel">
+            {didYouMean && (
+              <p className="did-you-mean">
+                Did you mean <button type="button" className="link-button" onClick={acceptCorrection}>{didYouMean}</button>?
+              </p>
+            )}
             {tookMs !== null && (
               <p className="result-summary">
                 {totalIsLowerBound ? 'more than ' : ''}{total} result{total === 1 && !totalIsLowerBound ? '' : 's'} · {tookMs} ms

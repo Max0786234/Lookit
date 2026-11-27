@@ -80,11 +80,12 @@ scripts/fetch-model.sh            # 90 MB embedding model → enables semantic &
 scripts/fetch-beir.sh scifact     # evaluation dataset (also: fiqa)
 mvn -q compile exec:java -Dexec.args="data/beir/scifact"          # quality table
 mvn -q compile exec:java -Dexec.mainClass=com.searchengine.eval.Benchmark -Dexec.args="data/beir/fiqa"
-docker compose up --build         # PostgreSQL + API + UI on http://localhost:8081 (see note below)
+docker compose up --build         # PostgreSQL + API + UI on http://localhost:8081
 ```
 
-On Windows use the `.ps1` variants in `scripts/`. The Docker files are written but were not built in
-the development environment.
+On Windows use the `.ps1` variants in `scripts/`. The compose stack has been verified end to end:
+all three containers start, keyword/semantic/hybrid search, suggestions, Swagger UI and Prometheus
+work through the nginx proxy, and the index and embeddings survive an API restart.
 
 ## API
 

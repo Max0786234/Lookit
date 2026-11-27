@@ -55,6 +55,6 @@ backed by a number.
 - [x] Autocomplete (prefix suggestions)
 
 ## M7 — Polish
-- [x] Docker compose full stack, OpenAPI, metrics endpoint (Docker files not built locally)
+- [x] Docker compose full stack, OpenAPI, metrics endpoint
 - [x] Frontend: pagination, highlighting, suggestions, crawl status
 - [x] Final report (docs/REPORT.md)

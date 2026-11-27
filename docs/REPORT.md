@@ -128,7 +128,7 @@ SciFact.
 - **Crash safety.** Segment files and manifests are written to temporary files and atomically
   renamed; an index that disagrees with the database is rebuilt at startup.
 - **Operability.** Prometheus metrics (latency per mode, zero-result rate, index size), OpenAPI,
-  RFC 9457 error bodies, Docker compose.
+  RFC 9457 error bodies, and a Docker compose stack (PostgreSQL, API, UI) verified end to end.
 - **Decisions.** Sixteen ADRs in `docs/DECISIONS.md` record the context and trade-off behind each
   non-obvious choice.
 
@@ -143,7 +143,6 @@ SciFact.
   slightly until a merge.
 - **CPU encoding is slow** (~20 abstracts/s). A quantised model, GPU, or batching across requests
   would help; the HNSW graph is in memory and rebuilt from stored vectors at startup.
-- **Docker files were not built** in the development environment.
 - Natural next steps: Block-Max WAND, learned sparse retrieval, a cross-encoder re-ranker over the
   hybrid top 50, and query-log-based spelling and autocomplete.
 

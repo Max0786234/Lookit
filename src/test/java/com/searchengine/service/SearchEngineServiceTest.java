@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Import;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-@DataJpaTest(properties = {"lookit.index.dir=", "lookit.vector.model-dir="})
+@DataJpaTest(properties = {"lookit.index.dir=", "lookit.vector.model-dir=", "lookit.seed.beir-dir="})
 @Import({SearchEngineService.class, DocumentLoaderService.class})
 class SearchEngineServiceTest {
 

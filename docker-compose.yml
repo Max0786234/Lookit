@@ -1,5 +1,6 @@
 # Full stack: PostgreSQL + API + web UI.   docker compose up --build   → http://localhost:8081
 # Semantic search: run scripts/fetch-model.sh first; the model directory is mounted read-only.
+# Starter corpus: scripts/fetch-beir.sh scifact — its 5,183 abstracts are loaded on first start.
 services:
   postgres:
     image: postgres:16-alpine
@@ -34,6 +35,7 @@ services:
     volumes:
       - index_data:/app/data/index
       - ./data/models:/app/data/models:ro
+      - ./data/beir:/app/data/beir:ro
 
   web:
     build: ./frontend

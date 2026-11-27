@@ -13,6 +13,7 @@ COPY --from=build /src/target/search-engine-*.jar app.jar
 COPY data/documents ./data/documents
 USER lookit
 ENV LOOKIT_INDEX_DIR=/app/data/index \
-    LOOKIT_MODEL_DIR=/app/data/models/all-MiniLM-L6-v2
+    LOOKIT_MODEL_DIR=/app/data/models/all-MiniLM-L6-v2 \
+    LOOKIT_SEED_DIR=/app/data/beir/scifact
 EXPOSE 8080
 ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "app.jar"]

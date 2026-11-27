@@ -4,4 +4,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface DocumentRepository extends JpaRepository<DocumentEntity, Integer> {
     boolean existsByUrl(String url);
+
+    boolean existsByUrlStartingWith(String prefix);
 }

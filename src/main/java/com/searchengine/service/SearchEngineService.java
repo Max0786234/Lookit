@@ -54,6 +54,8 @@ public class SearchEngineService {
 
     private final Path vectorFile;
     private final Set<Integer> vectorized = ConcurrentHashMap.newKeySet();
+    /** Embeddings computed elsewhere (seed corpus), used instead of re-encoding. */
+    private final Map<Integer, float[]> precomputedVectors = new ConcurrentHashMap<>();
 
     /** Keyword-only service (no embedding model). */
     public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService,
@@ -61,16 +63,27 @@ public class SearchEngineService {
         this(documentRepository, documentLoaderService, indexDir, "");
     }
 
+    public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService,
+                               String indexDir, String modelDir) {
+        this(documentRepository, documentLoaderService, indexDir, modelDir, "");
+    }
+
+    /**
+     * @param seedDir BEIR corpus loaded into an install once so there is something to search
+     *                (blank = only the bundled samples)
+     */
     @Autowired
     public SearchEngineService(DocumentRepository documentRepository, DocumentLoaderService documentLoaderService,
                                @Value("${lookit.index.dir:}") String indexDir,
-                               @Value("${lookit.vector.model-dir:}") String modelDir) {
+                               @Value("${lookit.vector.model-dir:}") String modelDir,
+                               @Value("${lookit.seed.beir-dir:}") String seedDir) {
         this.documentRepository = documentRepository;
         this.vectorFile = indexDir == null || indexDir.isBlank() ? null : Path.of(indexDir).resolve("vectors.vec");
         if (documentRepository.count() == 0) {
             int loaded = documentLoaderService.loadDocumentsFromDirectory(SAMPLE_DIRECTORY);
             log.info("Empty corpus: loaded {} sample documents from {}", loaded, SAMPLE_DIRECTORY);
         }
+        precomputedVectors.putAll(CorpusSeeder.seedIfNeeded(documentRepository, seedDir));
         MutableIndex index = openIndex(indexDir);
         this.engine = new SearchEngine(index, new Bm25fSearcher(index, SearchEngine.BM25F_K1,
                 SearchEngine.defaultBm25fParams()));
@@ -180,7 +193,8 @@ public class SearchEngineService {
             engine.add(document, null);
             return;
         }
-        float[] vector = engine.embed(document);
+        float[] cached = precomputedVectors.remove(document.id());
+        float[] vector = cached != null ? cached : engine.embed(document);
         engine.add(document, vector);
         vectorized.add(document.id());
         if (vectorFile != null) {

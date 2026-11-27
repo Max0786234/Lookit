@@ -21,7 +21,7 @@ import java.util.zip.GZIPInputStream;
  * A BEIR-format dataset directory: {@code corpus.jsonl[.gz]}, {@code queries.jsonl[.gz]} and
  * {@code test.tsv} (or {@code qrels/test.tsv}) with {@code query-id  corpus-id  score} rows.
  */
-public record BeirDataset(String name, List<CorpusDoc> corpus, Map<String, String> queries,
+public record BeirDataset(String name, Path dir, List<CorpusDoc> corpus, Map<String, String> queries,
                           Map<String, Map<String, Integer>> qrels) {
 
     public record CorpusDoc(String id, String title, String text) {
@@ -71,7 +71,7 @@ public record BeirDataset(String name, List<CorpusDoc> corpus, Map<String, Strin
                 }
             }
         }
-        return new BeirDataset(dir.getFileName() + (split.equals("test") ? "" : "/" + split), corpus, queries, qrels);
+        return new BeirDataset(dir.getFileName() + (split.equals("test") ? "" : "/" + split), dir, corpus, queries, qrels);
     }
 
     private static BufferedReader open(Path dir, String name) throws IOException {

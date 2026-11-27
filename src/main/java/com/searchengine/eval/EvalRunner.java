@@ -45,6 +45,7 @@ public final class EvalRunner {
         SYSTEMS.put("bm25f-untuned", ds -> bm25f(ds, 1.2, Map.of(
                 Fields.TITLE, new Bm25fSearcher.FieldParams(1.0, 0.75), Fields.BODY, new Bm25fSearcher.FieldParams(1.0, 0.75))));
         SYSTEMS.put("bm25f", ds -> bm25f(ds, SearchEngine.BM25F_K1, SearchEngine.defaultBm25fParams()));
+        DenseSystems.register(SYSTEMS);
     }
 
     private EvalRunner() {

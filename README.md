@@ -77,7 +77,7 @@ Optional extras:
 
 ```sh
 scripts/fetch-model.sh            # 90 MB embedding model → enables semantic & hybrid modes
-scripts/fetch-beir.sh scifact     # evaluation dataset (also: fiqa)
+scripts/fetch-beir.sh scifact     # 5,183 abstracts, loaded automatically on first start (and used for evaluation)
 mvn -q compile exec:java -Dexec.args="data/beir/scifact"          # quality table
 mvn -q compile exec:java -Dexec.mainClass=com.searchengine.eval.Benchmark -Dexec.args="data/beir/fiqa"
 docker compose up --build         # PostgreSQL + API + UI on http://localhost:8081
@@ -107,6 +107,7 @@ Query syntax examples: `"inverted index" -lucene`, `title:java +spring`, `retrie
 |---|---|---|
 | `lookit.index.dir` (`LOOKIT_INDEX_DIR`) | `data/index` | Persistent index directory; blank = in-memory |
 | `lookit.vector.model-dir` (`LOOKIT_MODEL_DIR`) | `data/models/all-MiniLM-L6-v2` | Embedding model; missing = keyword only |
+| `lookit.seed.beir-dir` (`LOOKIT_SEED_DIR`) | `data/beir/scifact` | Corpus loaded once into a fresh install (5,183 abstracts); missing = samples only |
 | `lookit.crawler.min-delay-ms` | `1000` | Minimum delay between requests to one host |
 | `lookit.ranking.pagerank-weight` | `0.3` | Weight of ln(PageRank) prior (ADR-012) |
 | `spring.profiles.active=postgres` + `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | H2 | Use PostgreSQL |

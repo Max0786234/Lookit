@@ -35,11 +35,11 @@ backed by a number.
 - [x] Highlighted snippets
 
 ## M4 — On-disk index
-- [ ] Postings codec (delta + varint)
-- [ ] Immutable segments, RAM buffer → flush, tombstone deletes, merges
-- [ ] Load index from disk on startup
-- [ ] WAND dynamic pruning
-- [ ] Latency / throughput / index-size benchmarks
+- [x] Postings codec (delta + varint)
+- [x] Immutable segments, RAM buffer → flush, tombstone deletes, merges
+- [x] Load index from disk on startup
+- [x] WAND dynamic pruning
+- [x] Latency / throughput / index-size benchmarks
 
 ## M5 — Crawler
 - [ ] Async crawl jobs + status endpoint

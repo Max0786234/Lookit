@@ -69,3 +69,16 @@ title weight 2.0, b_title = 0.6, b_body = 0.9 (train nDCG@10 0.7065). Test resul
 - Combining field frequencies before saturation is worth +0.022 on its own; tuning adds +0.003.
   The structural fix matters far more than the parameters, which is reassuring about overfitting.
 - BM25F is now the engine default (`SearchEngine.inMemory()`).
+
+### Second dataset: FiQA (57,638 financial Q&A posts, 648 test queries)
+
+| System | nDCG@10 | MRR@10 | Recall@100 |
+|---|---|---|---|
+| bm25 / bm25f-untuned | 0.2493 | 0.3087 | 0.5522 |
+| bm25f (SciFact-tuned) | 0.2475 | 0.3019 | 0.5463 |
+| lucene-bm25 (flat = multifield) | 0.2536 | 0.3089 | 0.5489 |
+
+- FiQA documents have no titles, so BM25F reduces to BM25 and flat = multi-field.
+- Our BM25 is within 1.7% of Lucene's nDCG@10 and has higher Recall@100 (published BEIR BM25: 0.236).
+- The SciFact-tuned parameters (notably b_body = 0.9) transfer slightly negatively (−0.002):
+  tuning is corpus-specific, which is why the untuned BM25F is kept as a registered system.

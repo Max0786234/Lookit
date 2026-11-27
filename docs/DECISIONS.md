@@ -51,3 +51,22 @@ Short records of *why* things are the way they are. Format: context → decision
 - Decision: BM25F (field-weighted, per-field length-normalised tf, one saturation), with
   df = max over fields. Parameters grid-searched on SciFact *train*; test is reported only.
 - Consequence: 0.6922 test nDCG@10. Field-restricted queries (`title:x`) still use plain BM25.
+
+## ADR-009 — Segment format: immutable files, tombstones, postings-level merges
+- Context: the index had to survive restarts and scale past RAM-rebuild-from-DB on every start.
+- Decision: Lucene-style immutable segments. Postings are delta+varint coded with a skip entry
+  per 128-doc block; the term dictionary and per-field lengths load into arrays at open, postings
+  and stored docs are read lazily from a memory-mapped file. Deletes are tombstones in a `.del`
+  sidecar; merges are k-way postings merges over a `MultiReader` (no re-analysis) that drop
+  tombstoned docs. A manifest file is swapped atomically on commit.
+- Consequence: crash-safe commits and bounded segment counts. Statistics count tombstoned docs until
+  merged (as in Lucene). The DB stays the source of truth: an index that disagrees with it is
+  rebuilt at startup. Single-writer only.
+
+## ADR-010 — WAND with stored per-term bounds
+- Context: BM25's theoretical ceiling idf·(k1+1) is too loose for effective pruning.
+- Decision: each term stores max tf and min field length per field; the score bound is the
+  similarity evaluated at (max tf, min length), valid because BM25/BM25F increase with tf and
+  decrease with length. Bounds only widen on delete, so they stay valid without rewriting.
+- Consequence: 22× fewer documents scored on FiQA with exactly the exhaustive top-k; reported hit
+  totals become lower bounds (exposed as `totalIsLowerBound`).

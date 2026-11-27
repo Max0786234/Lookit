@@ -48,13 +48,13 @@ backed by a number.
 - [x] Link graph + PageRank as a ranking signal (tested; no public judged link graph — see ADR-012)
 
 ## M6 — Semantic search + query assistance
-- [ ] Dense embeddings (pluggable encoder)
-- [ ] HNSW vector index
-- [ ] Hybrid retrieval with Reciprocal Rank Fusion, evaluated against BM25
-- [ ] Spelling correction ("did you mean")
-- [ ] Autocomplete (prefix suggestions)
+- [x] Dense embeddings (pluggable encoder; all-MiniLM-L6-v2 on ONNX Runtime)
+- [x] HNSW vector index
+- [x] Hybrid retrieval with Reciprocal Rank Fusion, evaluated against BM25
+- [x] Spelling correction ("did you mean")
+- [x] Autocomplete (prefix suggestions)
 
 ## M7 — Polish
-- [ ] Docker compose full stack, OpenAPI, metrics endpoint
-- [ ] Frontend: pagination, highlighting, suggestions, crawl status
+- [x] Docker compose full stack, OpenAPI, metrics endpoint (Docker files not built locally)
+- [x] Frontend: pagination, highlighting, suggestions, crawl status
 - [ ] Final report

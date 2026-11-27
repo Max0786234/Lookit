@@ -87,10 +87,16 @@ function App() {
   // With WAND pruning the total is a lower bound: allow "Next" while pages keep coming back full.
   const pageCount = Math.max(Math.ceil(total / PAGE_SIZE), totalIsLowerBound && results.length === PAGE_SIZE ? page + 1 : 0)
 
+  const describeJob = (job) =>
+    `${job.status === 'RUNNING' ? '⏳' : job.status === 'DONE' ? '✅' : '❌'} ${job.status.toLowerCase()} · ` +
+    `fetched ${job.fetched}, stored ${job.stored}, duplicates ${job.duplicates}, ` +
+    `blocked by robots.txt ${job.robotsBlocked}, errors ${job.errors}` +
+    (job.error ? ` — ${job.error}` : '')
+
   const handleCrawl = async (event) => {
     event.preventDefault()
     setLoading(true)
-    setCrawlStatus('Crawling in progress...')
+    setCrawlStatus('Starting crawl…')
 
     try {
       const response = await fetch(`${API}/crawl`, {
@@ -101,30 +107,25 @@ function App() {
           maxPages: parseInt(crawlMaxPages),
           maxDepth: parseInt(crawlMaxDepth),
         }),
-        signal: AbortSignal.timeout(60000), // 60 second timeout
       })
-
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+        const problem = await response.json().catch(() => ({}))
+        throw new Error(problem.detail ?? `HTTP ${response.status}`)
       }
 
-      const data = await response.json()
-      setCrawlStatus(`✅ Crawled ${data.crawledPages} pages from ${data.seedUrl}`)
-
-      // Fetch updated stats
-      try {
-        const statsResponse = await fetch(`${API}/stats`)
-        const statsData = await statsResponse.json()
-        setStats(statsData)
-      } catch (statsError) {
-        console.error('Failed to fetch stats:', statsError)
+      // The crawl runs in the background (politely, ~1 page/s per host): poll its status.
+      let job = await response.json()
+      setCrawlStatus(describeJob(job))
+      while (job.status === 'RUNNING') {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        job = await (await fetch(`${API}/crawl/${job.jobId}`)).json()
+        setCrawlStatus(describeJob(job))
       }
-
-      // Clear search results to show crawler ran successfully
+      await refreshStats()
       setResults([])
     } catch (error) {
       console.error('Crawl failed', error)
-      setCrawlStatus(`❌ Crawl failed: ${error.message}. Try a simpler URL like https://example.com`)
+      setCrawlStatus(`❌ Crawl failed: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -224,7 +225,7 @@ function App() {
                   value={crawlMaxPages}
                   onChange={(event) => setCrawlMaxPages(event.target.value)}
                   min="1"
-                  max="100"
+                  max="500"
                 />
               </div>
 
@@ -236,7 +237,7 @@ function App() {
                   value={crawlMaxDepth}
                   onChange={(event) => setCrawlMaxDepth(event.target.value)}
                   min="0"
-                  max="3"
+                  max="5"
                 />
               </div>
             </div>
